@@ -121,11 +121,21 @@ if [ "$STRICT_PATCHES" = 1 ] && [ "${#failures[@]}" -gt 0 ]; then
 fi
 
 # Linux build-system adjustment, the same kind darwin-xnu-build makes on macOS. XNU's
-# makedefs/MakeInc.cmd hard-codes /usr/bin/xcrun, which does not exist on Linux; the patch
-# series does not change it because on macOS it is correct. Nothing else is rewritten: the
-# SDKROOT the makefiles resolve through xcrun is the overlay linux/setup-deps.sh builds, and
-# the firehose path in makedefs/MakeInc.def is already relative to SDKROOT.
-sed -i 's|XCRUN = /usr/bin/xcrun|XCRUN = xcrun|' "$XNU_SRC/makedefs/MakeInc.cmd"
+# makedefs/MakeInc.cmd hard-codes /usr/bin/xcrun and /usr/bin/codesign, and uses
+# /usr/bin/plutil; none of the three exist on Linux, and the first two are what the host
+# tools are built with. Point them at PATH, where linux/bin has the stubs and linux/env.sh
+# has put the cctools. Nothing else is rewritten: the SDKROOT the makefiles resolve through
+# xcrun is the overlay linux/setup-deps.sh builds, and the firehose path in
+# makedefs/MakeInc.def is already relative to SDKROOT.
+sed -i \
+	-e 's|XCRUN = /usr/bin/xcrun|XCRUN = xcrun|' \
+	-e 's|HOST_CODESIGN\([[:space:]]*\):=[[:space:]]*/usr/bin/codesign|HOST_CODESIGN\1:= codesign|' \
+	-e 's|PLUTIL = /usr/bin/plutil|PLUTIL = plutil|' \
+	"$XNU_SRC/makedefs/MakeInc.cmd"
 grep -q 'XCRUN = xcrun' "$XNU_SRC/makedefs/MakeInc.cmd" ||
 	die "could not point XCRUN at the xcrun on PATH"
-log "makedefs/MakeInc.cmd: XCRUN now resolves from PATH"
+grep -q 'HOST_CODESIGN[[:space:]]*:=[[:space:]]*codesign' "$XNU_SRC/makedefs/MakeInc.cmd" ||
+	die "could not point HOST_CODESIGN at the codesign stub"
+grep -q 'PLUTIL = plutil' "$XNU_SRC/makedefs/MakeInc.cmd" ||
+	die "could not point PLUTIL at the plutil stub"
+log "makedefs/MakeInc.cmd: XCRUN, HOST_CODESIGN and PLUTIL now resolve from PATH"

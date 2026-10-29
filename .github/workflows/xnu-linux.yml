@@ -170,18 +170,17 @@ jobs:
 
       - name: Export the kernel's headers
         run: bash linux/build.sh exporthdrs 2>&1 | tee -a exporthdrs.log
-        continue-on-error: true
 
       - name: Dependencies, stage 2 (libfirehose_kernel)
         run: bash linux/setup-deps.sh --stage2
 
       - name: Build
         run: |
-          set -o pipefail
-          # -k is make's keep-going: the export check in config/Makefile fails only after the
-          # kernel is linked, so make's status says nothing about the kernel. The file is the
-          # check, right below.
-          bash linux/build.sh -k 2>&1 | tee build.log || true
+          # make's status says nothing about the kernel: config/Makefile's export check runs
+          # after the link and fails for any kernel. linux/build-with-iig.sh runs make with -k,
+          # reconstructs the DriverKit wrappers from the linker's undefined list if they are
+          # missing, links again and relinks once the kernel's symbols are known.
+          bash linux/build-with-iig.sh || true
           tail -40 build.log
 
       - name: Check the kernel
@@ -238,4 +237,6 @@ jobs:
             deps/exporthdrs.log
             deps/mig-build.log
             deps/tcsh-build.log
+            kernel.syms
+            linux/iig-impl/OSObject.iig.cpp
           if-no-files-found: warn
