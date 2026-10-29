@@ -21,22 +21,29 @@ run() {
 # iokit/DriverKit/Makefile's rule is
 #     %.h : %.iig
 #         $(IIG) --def $< --header $@ --impl $(patsubst %.h,%.iig.cpp,$@) ...
-# so the implementation is written next to whatever .h it generated - the build tree when the
-# header is generated there, the source tree when it is generated there. Put the stub in every
-# directory that has a generated OSObject.h (and in the source tree), remove the object, and
-# drop the empty implementations an earlier iig run may have left in the build tree.
+# so the implementation is written next to whatever .h it generated. In this build the generated
+# headers end up in BUILD/obj/<config>/iokit/<KERNEL_CONFIG>/DriverKit/, one level below the
+# object (BUILD/obj/<config>/iokit/<KERNEL_CONFIG>/OSObject.iig.cpo). Steps, in this order:
+#   1. drop empty implementations an earlier iig run left behind (before copying the stub);
+#   2. write the stub next to each generated OSObject.h and in the source tree;
+#   3. remove the object so make compiles the stub.
 install_stub() {
-	local stub=$TOP/linux/iig-impl/OSObject.iig.cpp hdr d
+	local stub=$TOP/linux/iig-impl/OSObject.iig.cpp gendir hdr d
+	find "$XNU_SRC/BUILD/obj" -name '*.iig.cpp' -size -200c -print -delete 2>/dev/null |
+		sed 's/^/build-with-iig: removed empty /'
 	cp "$stub" "$XNU_SRC/iokit/DriverKit/OSObject.iig.cpp"
 	while IFS= read -r hdr; do
 		d=$(dirname "$hdr")
 		cp "$stub" "$d/OSObject.iig.cpp"
-		rm -f "$d/OSObject.iig.cpo"
 		echo "build-with-iig: stub -> $d/OSObject.iig.cpp (next to its generated header)"
 	done < <(find "$XNU_SRC/BUILD/obj" -name 'OSObject.h' 2>/dev/null)
-	# empty implementations make an empty object whatever the header says
-	find "$XNU_SRC/BUILD/obj" -name '*.iig.cpp' -size -200c -print -delete 2>/dev/null |
-		sed 's/^/build-with-iig: removed empty /'
+	# the object is one level above the DriverKit subdirectory that holds the implementation
+	local objroot=$XNU_SRC/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG} gd
+	for gd in "$objroot/iokit/${KERNEL_CONFIG}" "$objroot/iokit"; do
+		[ -d "$gd" ] || continue
+		rm -f "$gd/OSObject.iig.cpo"
+		echo "build-with-iig: removed object $gd/OSObject.iig.cpo"
+	done
 	echo "build-with-iig: tree file now $(wc -c <"$XNU_SRC/iokit/DriverKit/OSObject.iig.cpp") bytes, $(grep -c '__iig_stub_' "$XNU_SRC/iokit/DriverKit/OSObject.iig.cpp") stubs"
 }
 
