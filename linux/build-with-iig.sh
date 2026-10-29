@@ -25,41 +25,43 @@ run() {
 # headers end up in BUILD/obj/<config>/iokit/<KERNEL_CONFIG>/DriverKit/, one level below the
 # object (BUILD/obj/<config>/iokit/<KERNEL_CONFIG>/OSObject.iig.cpo). Steps, in this order:
 #   1. drop empty implementations an earlier iig run left behind (before copying the stub);
-#   2. write the stub next to each generated OSObject.h and in the source tree;
-#   3. remove the object so make compiles the stub.
+#   2. write the stub next to each generated OSObject.h and in the source tree, and touch it;
+#   3. remove every DriverKit object in that layer so make compiles the stubs again.
 install_stub() {
-	local stub=$TOP/linux/iig-impl/OSObject.iig.cpp gendir hdr d
+	local stub=$TOP/linux/iig-impl/OSObject.iig.cpp hdr d
 	find "$XNU_SRC/BUILD/obj" -name '*.iig.cpp' -size -200c -print -delete 2>/dev/null |
 		sed 's/^/build-with-iig: removed empty /'
 	cp "$stub" "$XNU_SRC/iokit/DriverKit/OSObject.iig.cpp"
+	touch "$XNU_SRC/iokit/DriverKit/OSObject.iig.cpp"
 	while IFS= read -r hdr; do
 		d=$(dirname "$hdr")
 		cp "$stub" "$d/OSObject.iig.cpp"
+		touch "$d/OSObject.iig.cpp"
 		echo "build-with-iig: stub -> $d/OSObject.iig.cpp (next to its generated header)"
 	done < <(find "$XNU_SRC/BUILD/obj" -name 'OSObject.h' 2>/dev/null)
-	# the object is one level above the DriverKit subdirectory that holds the implementation
 	local objroot=$XNU_SRC/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG} gd
 	for gd in "$objroot/iokit/${KERNEL_CONFIG}" "$objroot/iokit"; do
 		[ -d "$gd" ] || continue
-		rm -f "$gd/OSObject.iig.cpo"
-		echo "build-with-iig: removed object $gd/OSObject.iig.cpo"
+		rm -f "$gd"/*.iig.cpo
+		echo "build-with-iig: removed $gd/*.iig.cpo"
 	done
 	echo "build-with-iig: tree file now $(wc -c <"$XNU_SRC/iokit/DriverKit/OSObject.iig.cpp") bytes, $(grep -c '__iig_stub_' "$XNU_SRC/iokit/DriverKit/OSObject.iig.cpp") stubs"
 }
 
-# After a rebuild, say whether the object that just got compiled really carries the stubs.
+# After a rebuild, say whether the objects that got compiled really carry the stubs.
 show_stub_objects() {
-	local f n
+	local f n missing=0
+	for f in $(find "$XNU_SRC/BUILD/obj" -name '*.iig.cpp' 2>/dev/null); do
+		n=$(grep -c 'kIOReturnUnsupported\|_Impl' "$f" || true)
+		[ "$n" -gt 0 ] || { echo "STUB MISSING: $f"; missing=$((missing + 1)); }
+	done
+	echo "build-with-iig: stub files with content: $(find "$XNU_SRC/BUILD/obj" -name '*.iig.cpp' -exec grep -l 'kIOReturnUnsupported\|_Impl' {} + 2>/dev/null | wc -l), missing: $missing"
 	for f in "$XNU_SRC"/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}/iokit/*/OSObject.iig.cpo \
 		"$XNU_SRC"/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}/iokit/OSObject.iig.cpo; do
 		[ -f "$f" ] || continue
-		n=$(deps/host/bin/nm "$f" 2>/dev/null | wc -l)
-		echo "build-with-iig: object $f: $n symbols, $(deps/host/bin/nm "$f" 2>/dev/null | grep -c 'IOEventLink') IOEventLink, $(deps/host/bin/nm "$f" 2>/dev/null | grep -c 'IOUserServer') IOUserServer"
-		# the dependency file names the source the object was compiled from
-		[ -f "${f%.cpo}.d" ] && echo "build-with-iig:   ${f%.cpo}.d: $(head -3 "${f%.cpo}.d" | tr '\n' ' ')"
+		n=$(deps/host/bin/nm -g "$f" 2>/dev/null | wc -l)
+		echo "build-with-iig: object $f: $n global symbols, $(deps/host/bin/nm "$f" 2>/dev/null | grep -c 'IOEventLink') IOEventLink, $(deps/host/bin/nm "$f" 2>/dev/null | grep -c 'IOUserServer') IOUserServer"
 	done
-	echo "build-with-iig: every OSObject.iig.* under BUILD/obj (size, path):"
-	find "$XNU_SRC/BUILD/obj" \( -name 'OSObject.iig.cpp' -o -name 'OSObject.iig.cpo' -o -name 'OSObject.iig.d' \) -printf '  %s %p\n' 2>/dev/null
 }
 
 echo "build-with-iig: kernel will be $K"
