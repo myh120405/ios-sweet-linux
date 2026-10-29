@@ -1,0 +1,241 @@
+name: xnu-linux
+
+# Build the kernel the macOS workflow (.github/workflows/xnu.yml) builds, on an Ubuntu runner:
+# xnu-8796.141.3 (the xnu macOS 13.5 was built from) + our patch series +
+# ARM64_BOARD_CONFIG_SWEET / DEVELOPMENT. No macOS runner is involved, which is the point:
+# the macos-13/14/15 pools have been queued with zero steps since 2026-10-29 15:00.
+#
+# Two jobs:
+#   patches-audit  applies the series with STRICT_PATCHES=1: every patch must apply, and the
+#                  ones that do not are printed with their files and failed hunks. This job is
+#                  the answer to "did anything get skipped?" - it is deliberately separate from
+#                  the build so its report does not need to fail the kernel.
+#   build          applies the series the way the macOS build does (nine known-inapplicable
+#                  patches, listed in linux/known-skips.txt with the macOS run that proves it)
+#                  and builds. Any *other* inapplicable patch fails the run.
+#
+# The patches come from myh982516/ios-sweet-umi at a pinned commit: the same files the macOS
+# build uses. darwin-xnu-build merely warns and skips; here skipping is a reported, bounded set.
+
+on:
+  workflow_dispatch:
+    inputs:
+      patches_repo:
+        description: repository that carries xnu/patches (owner/name)
+        default: myh982516/ios-sweet-umi
+      patches_sha:
+        description: commit of that repository to take the patches from
+        default: 2e60980a9d8725da5fddca67ff9bdb1e85f2b43a
+      xnu_tag:
+        description: apple-oss-distributions/xnu tag to build on
+        default: xnu-8796.141.3
+      machine_config:
+        description: xnu MACHINE_CONFIG
+        default: SWEET
+      kernel_config:
+        description: RELEASE / DEVELOPMENT / DEBUG
+        default: DEVELOPMENT
+  push:
+    branches: [main]
+    paths:
+      - "linux/**"
+      - ".github/workflows/xnu-linux.yml"
+
+concurrency:
+  group: xnu-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # 13.5 in the macOS workflow -> distribution-macOS macos-135 -> xnu-8796.141.3
+  XNU_TAG: ${{ inputs.xnu_tag || 'xnu-8796.141.3' }}
+  XNU_TAG_SHA: 1b191cb58250d0705d8a51287127505aa4bc0789
+  MACHINE_CONFIG: ${{ inputs.machine_config || 'SWEET' }}
+  KERNEL_CONFIG: ${{ inputs.kernel_config || 'DEVELOPMENT' }}
+  PATCHES_REPO: ${{ inputs.patches_repo || 'myh982516/ios-sweet-umi' }}
+  PATCHES_SHA: ${{ inputs.patches_sha || '2e60980a9d8725da5fddca67ff9bdb1e85f2b43a' }}
+  EXPECTED_PATCHES: 149
+  # the macOS build applies 140 of the 149 and skips these nine (run 40831765215)
+  EXPECTED_APPLIED: 140
+  EXPECTED_KNOWN_SKIPS: 9
+  THEOS: ${{ github.workspace }}/theos
+  # toolchain and SDK are pinned, like the patches: a moved "latest" must not change a build
+  TOOLCHAIN_URL: https://github.com/L1ghtmann/llvm-project/releases/download/test-210562a/iOSToolchain-x86_64.tar.xz
+  SDK_URL: https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz
+
+jobs:
+  patches-audit:
+    name: patch series (strict: every patch must apply)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Kernel patches (pinned commit)
+        run: |
+          git init -q patches-src
+          git -C patches-src remote add origin "https://github.com/$PATCHES_REPO.git"
+          git -C patches-src fetch -q --depth 1 origin "$PATCHES_SHA"
+          git -C patches-src checkout -q FETCH_HEAD
+          echo "patches from $PATCHES_REPO@$(git -C patches-src rev-parse HEAD)"
+          n=$(ls patches-src/xnu/patches/*.patch | wc -l)
+          echo "patches: $n, stage scripts: $(ls patches-src/xnu/patches/*.sh | wc -l)"
+          [ "$n" -eq "$EXPECTED_PATCHES" ] || { echo "::error::expected $EXPECTED_PATCHES patches, found $n"; exit 1; }
+
+      - name: iPhoneOS16.5.sdk (only what the stage scripts ask xcrun for)
+        run: |
+          mkdir -p "$THEOS/sdks"
+          curl -fsSL --retry 5 "$SDK_URL" | tar -xJf - -C "$THEOS/sdks/"
+          test -d "$THEOS/sdks/iPhoneOS16.5.sdk/usr/include"
+
+      - name: Apply every patch (expected to fail on the nine)
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          STRICT_PATCHES=1 bash linux/apply-xnu.sh 2>&1 | tee patch-report.txt
+          echo "audit exit: ${PIPESTATUS[0]}"
+
+      - name: Summarise the report
+        run: |
+          echo "### patches that do not apply" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -E "does not apply to|^  Hunk #|^  [0-9]+ out of [0-9]+ hunk" patch-report.txt | head -60 >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          grep -E "does not apply to" patch-report.txt | sed 's/.*patch //;s/ does not apply.*//' | sort -u
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: patch-audit
+          path: patch-report.txt
+          if-no-files-found: warn
+
+  build:
+    name: xnu (ubuntu)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Toolchain packages
+        run: |
+          sudo apt-get update -qq
+          # uuid-dev: linux/hostinc/hostcompat.h includes <uuid/uuid.h>, and the host tools
+          # (setsegname, kextsymboltool, decomment, config) are built from it in exporthdrs,
+          # the first step that compiles anything.
+          sudo apt-get install -y -qq clang lld llvm flex bison m4 perl python3 autoconf automake \
+            libtool curl xz-utils git build-essential libxml2 libxml2-dev libtinfo6 libncurses-dev \
+            uuid-dev pkg-config jq file
+          clang --version | head -1
+          clang -dumpversion
+
+      - name: theos, its Linux toolchain and iPhoneOS16.5.sdk
+        run: |
+          git clone --depth 1 https://github.com/theos/theos.git "$THEOS"
+          mkdir -p "$THEOS/toolchain" "$THEOS/sdks"
+          curl -fsSL --retry 5 "$TOOLCHAIN_URL" | tar -xJf - -C "$THEOS/toolchain/"
+          curl -fsSL --retry 5 "$SDK_URL" | tar -xJf - -C "$THEOS/sdks/"
+          test -x "$THEOS/toolchain/linux/iphone/bin/clang"
+          test -x "$THEOS/toolchain/linux/iphone/bin/ld"
+          test -d "$THEOS/sdks/iPhoneOS16.5.sdk/usr/include"
+
+      - name: Kernel patches (pinned commit)
+        run: |
+          git init -q patches-src
+          git -C patches-src remote add origin "https://github.com/$PATCHES_REPO.git"
+          git -C patches-src fetch -q --depth 1 origin "$PATCHES_SHA"
+          git -C patches-src checkout -q FETCH_HEAD
+          echo "patches from $PATCHES_REPO@$(git -C patches-src rev-parse HEAD)"
+          n=$(ls patches-src/xnu/patches/*.patch | wc -l)
+          echo "patches: $n, stage scripts: $(ls patches-src/xnu/patches/*.sh | wc -l)"
+          [ "$n" -eq "$EXPECTED_PATCHES" ] || { echo "::error::expected $EXPECTED_PATCHES patches, found $n"; exit 1; }
+
+      - name: XNU sources with the patch series on top (strict but for the nine)
+        run: |
+          set -o pipefail
+          bash linux/apply-xnu.sh 2>&1 | tee apply-xnu.log
+          ok=$(grep -c '^apply-xnu: ok ' apply-xnu.log || true)
+          skip=$(grep -c '^apply-xnu: known-skip ' apply-xnu.log || true)
+          echo "applied $ok, known-skip $skip, expected $EXPECTED_APPLIED + $EXPECTED_KNOWN_SKIPS"
+          [ "$ok" -eq "$EXPECTED_APPLIED" ] && [ "$skip" -eq "$EXPECTED_KNOWN_SKIPS" ] ||
+            { echo "::error::applied $ok and skipped $skip patches; expected $EXPECTED_APPLIED and $EXPECTED_KNOWN_SKIPS"; exit 1; }
+
+      - name: Dependencies, stage 1 (mig, unifdef, csh, the SDK overlay)
+        run: bash linux/setup-deps.sh --stage1
+
+      - name: Export the kernel's headers
+        run: bash linux/build.sh exporthdrs 2>&1 | tee -a exporthdrs.log
+        continue-on-error: true
+
+      - name: Dependencies, stage 2 (libfirehose_kernel)
+        run: bash linux/setup-deps.sh --stage2
+
+      - name: Build
+        run: |
+          set -o pipefail
+          # -k is make's keep-going: the export check in config/Makefile fails only after the
+          # kernel is linked, so make's status says nothing about the kernel. The file is the
+          # check, right below.
+          bash linux/build.sh -k 2>&1 | tee build.log || true
+          tail -40 build.log
+
+      - name: Check the kernel
+        run: |
+          K="$GITHUB_WORKSPACE/xnu-src/$XNU_TAG/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}/mach.$(echo $KERNEL_CONFIG | tr A-Z a-z).$(echo $MACHINE_CONFIG | tr A-Z a-z)"
+          echo "kernel path: $K"
+          if grep -q "built kernel at" build.log; then echo "xnu reports: $(grep 'built kernel at' build.log)"; fi
+          if [ ! -s "$K" ]; then
+            echo "::error::no kernel at $K"
+            echo "----- undefined symbols (iig or a missing dependency):"
+            grep -E "Undefined symbols|_ZN[0-9]|referenced from|symbol\(s\) not found" build.log | sort | uniq -c | sort -rn | head -60 || true
+            echo "----- first errors:"
+            grep -n -m 40 -E "error:|Error|failed" build.log || true
+            exit 1
+          fi
+          ls -la "$K"
+          file "$K"
+          deps/host/bin/otool -h "$K" 2>/dev/null | head -20 || true
+          if deps/host/bin/nm "$K" 2>/dev/null | grep -q -w umi_touch_init; then
+            echo "umi_touch_init is in the kernel"
+          elif grep -qa _umi_touch_init "$K"; then
+            echo "umi_touch_init is in the kernel (string table)"
+          else
+            echo "::error::umi_touch_init is not in the kernel - the patch series did not take effect"
+            exit 1
+          fi
+
+      - name: Name the artefact the way the macOS build names it
+        if: always()
+        run: |
+          mkdir -p out
+          K="$GITHUB_WORKSPACE/xnu-src/$XNU_TAG/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}/mach.$(echo $KERNEL_CONFIG | tr A-Z a-z).$(echo $MACHINE_CONFIG | tr A-Z a-z)"
+          if [ -s "$K" ]; then cp "$K" "out/kernel.$(echo $KERNEL_CONFIG | tr A-Z a-z).$(echo $MACHINE_CONFIG | tr A-Z a-z)"; fi
+          (cd out && sha256sum kernel.* > SHA256SUMS) || true
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xnu-kernel-linux
+          path: |
+            out/kernel.*
+            out/SHA256SUMS
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: xnu-linux-logs
+          path: |
+            build.log
+            apply-xnu.log
+            exporthdrs.log
+            deps/exporthdrs.log
+            deps/mig-build.log
+            deps/tcsh-build.log
+          if-no-files-found: warn

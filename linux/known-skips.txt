@@ -1,0 +1,36 @@
+# Patches that do not apply to xnu-8796.141.3 with this series, and why.
+#
+# This list is the one the macOS build already skips. .github/workflows/xnu.yml runs
+# blacktop/darwin-xnu-build, whose patch loop warns "Skipping patch ..." and carries on; run
+# 40831765215 (2026-10-29T06:51Z, b57ab716, success) logged exactly these nine:
+#
+#   Skipping patch .../0028-sweet-ufs-root-device.patch
+#   Skipping patch .../0112-umi-fb-log.patch
+#   Skipping patch .../0113-umi-watchdog.patch
+#   Skipping patch .../0114-umi-log-tail-4k.patch
+#   Skipping patch .../0120-umi-log-wakeup.patch
+#   Skipping patch .../0132-umi-sample-wakeup.patch
+#   Skipping patch .../0133-umi-sample-every.patch
+#   Skipping patch .../0134-umi-sample-delay.patch
+#   Skipping patch .../0155-umi-timer-probe.patch
+#
+# So the macOS kernel that boots is built from the other 140 patches, and this build is too.
+# The list is not a licence to skip: linux/apply-xnu.sh fails on any patch that is not here,
+# and the patches-audit job (STRICT_PATCHES=1) fails on these as well and prints the hunks.
+# If one of them starts applying (the series was rebased), the build says so and the list is
+# stale.
+#
+# 0028 is the same change as 0000 with 23 more lines of UFS logging: it re-adds
+# bsd/dev/sweet_ufs.c, which 0000 already created, so git apply refuses ("already exists").
+# 0112..0155 all touch bsd/dev/sweet_ufs.c (0155: pexpert/arm/pe_fiq.c) with context that
+# drifts by tens of lines from the file this series actually produces - the log-ring patches
+# (0094..0097, 0102..0110) added code the authors of these nine did not have in their tree.
+0028-sweet-ufs-root-device.patch
+0112-umi-fb-log.patch
+0113-umi-watchdog.patch
+0114-umi-log-tail-4k.patch
+0120-umi-log-wakeup.patch
+0132-umi-sample-wakeup.patch
+0133-umi-sample-every.patch
+0134-umi-sample-delay.patch
+0155-umi-timer-probe.patch

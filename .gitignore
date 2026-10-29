@@ -1,0 +1,6 @@
+deps/
+xnu-src/
+patches-src/
+theos/
+out/
+*.log
