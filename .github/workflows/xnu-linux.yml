@@ -58,9 +58,8 @@ env:
   EXPECTED_APPLIED: 140
   EXPECTED_KNOWN_SKIPS: 9
   THEOS: ${{ github.workspace }}/theos
-  # toolchain and SDK are pinned, like the patches: a moved "latest" must not change a build
+  # the cctools toolchain is pinned, like the patches: a moved "latest" must not change a build
   TOOLCHAIN_URL: https://github.com/L1ghtmann/llvm-project/releases/download/test-210562a/iOSToolchain-x86_64.tar.xz
-  SDK_URL: https://github.com/theos/sdks/releases/download/master-146e41f/iPhoneOS16.5.sdk.tar.xz
 
 jobs:
   patches-audit:
@@ -81,11 +80,10 @@ jobs:
           echo "patches: $n, stage scripts: $(ls patches-src/xnu/patches/*.sh | wc -l)"
           [ "$n" -eq "$EXPECTED_PATCHES" ] || { echo "::error::expected $EXPECTED_PATCHES patches, found $n"; exit 1; }
 
-      - name: iPhoneOS16.5.sdk (only what the stage scripts ask xcrun for)
+      - name: macOS 13.3 SDK (the SDKROOT the kernel is compiled against)
         run: |
-          mkdir -p "$THEOS/sdks"
-          curl -fsSL --retry 5 "$SDK_URL" | tar -xJf - -C "$THEOS/sdks/"
-          test -d "$THEOS/sdks/iPhoneOS16.5.sdk/usr/include"
+          bash linux/setup-sdk.sh
+          test -d "$MACOS_SDK/System/Library/Frameworks/Kernel.framework"
 
       - name: Apply every patch (expected to fail on the nine)
         continue-on-error: true
@@ -134,15 +132,18 @@ jobs:
           clang --version | head -1
           clang -dumpversion
 
-      - name: theos, its Linux toolchain and iPhoneOS16.5.sdk
+      - name: theos and its Linux toolchain (cctools - ld64, nm, strip, libtool)
         run: |
           git clone --depth 1 https://github.com/theos/theos.git "$THEOS"
-          mkdir -p "$THEOS/toolchain" "$THEOS/sdks"
+          mkdir -p "$THEOS/toolchain"
           curl -fsSL --retry 5 "$TOOLCHAIN_URL" | tar -xJf - -C "$THEOS/toolchain/"
-          curl -fsSL --retry 5 "$SDK_URL" | tar -xJf - -C "$THEOS/sdks/"
           test -x "$THEOS/toolchain/linux/iphone/bin/clang"
           test -x "$THEOS/toolchain/linux/iphone/bin/ld"
-          test -d "$THEOS/sdks/iPhoneOS16.5.sdk/usr/include"
+
+      - name: macOS 13.3 SDK (the SDKROOT the kernel is compiled against)
+        run: |
+          bash linux/setup-sdk.sh
+          test -d "$MACOS_SDK/System/Library/Frameworks/Kernel.framework"
 
       - name: Kernel patches (pinned commit)
         run: |

@@ -46,8 +46,8 @@ fi
 # The stage scripts are dxb's extension point: they add vendor sources (libpthread, HFS,
 # BearSSL) to the tree before the patches that use them are applied. They ask xcrun for the
 # SDK; before linux/setup-deps.sh has built the overlay, the theos SDK is that SDK.
-if [ ! -d "$XNU_SDK_PATH/usr/include" ] && [ -d "$IOS_SDK/usr/include" ]; then
-	export XNU_SDK_PATH=$IOS_SDK
+if [ ! -d "$XNU_SDK_PATH/usr/include" ] && [ -d "$MACOS_SDK/usr/include" ]; then
+	export XNU_SDK_PATH=$MACOS_SDK
 fi
 
 rm -rf "$XNU_SRC"
@@ -119,6 +119,16 @@ done
 if [ "$STRICT_PATCHES" = 1 ] && [ "${#failures[@]}" -gt 0 ]; then
 	die "${#failures[@]} patch(es) do not apply: ${failures[*]}"
 fi
+
+# Fixes for the newest patches that do not compile with any compiler yet (the macOS build has
+# not run since they were added). They are patches of their own, not edits to the series, so
+# the series stays byte-identical to myh982516/ios-sweet-umi. See linux/fixes/ and README.md.
+for f in "$HERE"/fixes/*.patch; do
+	[ -f "$f" ] || continue
+	git -C "$XNU_SRC" apply --whitespace=nowarn "$f" ||
+		die "overlay fix $(basename "$f") does not apply to $XNU_TAG"
+	log "overlay fix $(basename "$f")"
+done
 
 # Linux build-system adjustment, the same kind darwin-xnu-build makes on macOS. XNU's
 # makedefs/MakeInc.cmd hard-codes /usr/bin/xcrun and /usr/bin/codesign, and uses

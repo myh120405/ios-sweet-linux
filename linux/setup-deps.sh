@@ -47,7 +47,7 @@ stage1() {
 	done
 	[ -z "$missing" ] || die "not installed:$missing"
 	[ -x "$CCTOOLS/ld" ] || die "no cctools in $CCTOOLS: install theos with its Linux toolchain"
-	[ -d "$IOS_SDK/usr/include" ] || die "no $IOS_SDK (theos/sdks)"
+	[ -d "$MACOS_SDK/usr/include" ] || bash "$TOP/linux/setup-sdk.sh" || die "no macOS SDK in $MACOS_SDK"
 
 	# --- sources ---------------------------------------------------------------------------
 	fetch AvailabilityVersions https://github.com/apple-oss-distributions/AvailabilityVersions.git \
@@ -59,15 +59,10 @@ stage1() {
 	fetch tcsh https://github.com/tcsh-org/tcsh.git b7db07931546178c4cb2542b5fc850c483628ed5
 	fetch unifdef https://github.com/fanf2/unifdef.git 08d12cd3059fe072929ea001ad9833f5487fd355
 
-	# Apple's iig (the DriverKit interface generator) is closed source. The DriverKit headers it
-	# would emit for the xnu-8796 family ship ready-made in the macOS SDK of the same release.
-	if [ ! -d MacOSX13.3.sdk/System/Library/Frameworks/Kernel.framework/Headers/DriverKit ]; then
-		log "downloading the macOS 13.3 SDK for its generated DriverKit headers"
-		curl -L --fail --retry 3 -s -o macos-sdk.tar.xz "$MACOS_SDK_URL" || die "download failed: $MACOS_SDK_URL"
-		tar -xJf macos-sdk.tar.xz --wildcards '*MacOSX13.3.sdk/System/Library/Frameworks/Kernel.framework*' ||
-			die "cannot unpack the macOS SDK"
-		rm -f macos-sdk.tar.xz
-	fi
+	# The macOS SDK brings the DriverKit headers Apple's closed iig would generate, and the
+	# Kernel.framework private headers (AppleKeyStore, cp_*) that HFS and the kext code use.
+	[ -d "$MACOS_SDK/System/Library/Frameworks/Kernel.framework" ] ||
+		bash "$TOP/linux/setup-sdk.sh" || die "no macOS SDK in $MACOS_SDK"
 
 	# --- host tools -------------------------------------------------------------------------
 	mkdir -p host/bin
@@ -105,11 +100,13 @@ stage1() {
 	link xnu-clang "$TOP/linux/bin/xnu-clang++"
 
 	# --- the SDK ----------------------------------------------------------------------------
-	mkdir -p sdk/Platforms/iPhoneOS.platform
+	# XNU's makefiles want a directory that looks like an SDK: the macOS SDK, as symlinks, with
+	# the pieces Apple's internal SDK has and the public one lacks put under usr/local.
+	mkdir -p "$DEPS/sdk"
 	if [ ! -d "$XNU_SDK_PATH/usr/include" ]; then
-		log "making the SDK: links to $IOS_SDK"
+		log "making the SDK: links to $MACOS_SDK"
 		rm -rf "$XNU_SDK_PATH"
-		cp -rs "$(cd "$IOS_SDK" && pwd)" "$XNU_SDK_PATH"
+		cp -rs "$(cd "$MACOS_SDK" && pwd)" "$XNU_SDK_PATH"
 	fi
 	local sdk_local=$XNU_SDK_PATH/usr/local
 	mkdir -p "$sdk_local/include/kernel/os" "$sdk_local/include/os" "$sdk_local/lib/kernel" "$sdk_local/libexec"

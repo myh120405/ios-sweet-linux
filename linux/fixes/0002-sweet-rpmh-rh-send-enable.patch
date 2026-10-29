@@ -1,0 +1,22 @@
+diff --git a/bsd/dev/sweet_rpmh.c b/bsd/dev/sweet_rpmh.c
+index efba78b..23500f7 100644
+--- a/bsd/dev/sweet_rpmh.c
++++ b/bsd/dev/sweet_rpmh.c
+@@ -230,7 +230,7 @@ rh_free(unsigned t)
+ }
+ 
+ static int
+-rh_send(uint32_t address, unsigned mv)
++rh_send(uint32_t address, unsigned mv, unsigned enable)
+ {
+ 	int chosen = -1;
+ 	for (unsigned t = 0; t < RH_ACTIVE_N; ++t) {
+@@ -396,7 +396,7 @@ sweet_rpmh_vreg_set(const char *res, unsigned mv, unsigned enable)
+ 		error = rh_lookup(res, &address);
+ 	}
+ 	if (!error) {
+-		error = rh_send(address, mv);
++		error = rh_send(address, mv, enable);
+ 	}
+ out:
+ 	if (error) {

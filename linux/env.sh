@@ -10,16 +10,23 @@ export XNU_TAG=${XNU_TAG:-xnu-8796.141.3}
 export XNU_TAG_SHA=${XNU_TAG_SHA:-1b191cb58250d0705d8a51287127505aa4bc0789}
 export XNU_SRC=${XNU_SRC:-$TOP/xnu-src/$XNU_TAG}
 
-# theos: cctools (ld64, nm, strip, libtool...) and the iOS SDK the kernel is compiled against
+# theos: the cctools Mach-O linker and its companions (ld64, nm, strip, libtool...)
 export THEOS=${THEOS:-$TOP/theos}
 export CCTOOLS=$THEOS/toolchain/linux/iphone/bin
-export IOS_SDK=$THEOS/sdks/iPhoneOS16.5.sdk
 
 # what this repository fetches and builds (host tools, vendor sources, the SDK overlay)
 export DEPS=${DEPS:-$TOP/deps}
-export XNU_SDK_PATH=$DEPS/sdk/iPhoneOS16.5.xnu.sdk
-export XNU_SDK_VERSION=16.5
-export XNU_PLATFORM_PATH=$DEPS/sdk/Platforms/iPhoneOS.platform
+
+# The kernel is compiled against a macOS SDK, exactly like the macOS build: xnu.yml builds
+# with darwin-xnu-build, which passes SDKROOT=macosx, and that is what makes XNU_TARGET_OS_OSX
+# and TARGET_OS_IPHONE what the patch series expects. The same SDK supplies the Kernel.framework
+# private headers (DriverKit, AppleKeyStore, ...). 13.3 is the release closest to xnu-8796.141.3
+# that is published as a standalone SDK.
+export MACOS_SDK=${MACOS_SDK:-$DEPS/MacOSX13.3.sdk}
+export XNU_SDK_VERSION=${XNU_SDK_VERSION:-13.3}
+
+export XNU_SDK_PATH=$DEPS/sdk/MacOSX13.3.xnu.sdk
+export XNU_PLATFORM_PATH=$XNU_SDK_PATH/Platforms/MacOSX.platform
 
 # what the macOS workflow passes as env to darwin-xnu-build's patch stage
 export MACHINE_CONFIG=${MACHINE_CONFIG:-SWEET}
