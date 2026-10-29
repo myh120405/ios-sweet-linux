@@ -64,7 +64,7 @@ env:
 
 jobs:
   patches-audit:
-    name: patch series (strict: every patch must apply)
+    name: patch series - strict, every patch must apply
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
