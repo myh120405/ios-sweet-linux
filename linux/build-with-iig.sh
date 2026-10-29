@@ -18,15 +18,19 @@ run() {
 	bash "$TOP/linux/build.sh" -k 2>&1 | tee -a "$LOG"
 }
 
-# The generated OSObject.iig.cpp is a *source* file in the tree; make compiles it into
-# BUILD/obj/<config>/iokit/<KERNEL_CONFIG>/OSObject.iig.cpo. Copying the stub over the source and
-# removing that object is what makes make compile it: the iig rule itself only runs when its .h
-# is out of date, and deleting the .h would just regenerate an empty implementation.
+# The iig rule runs in the build directory: its outputs are $OBJROOT/.../<Class>.h and
+# <Class>.iig.cpp, and that copy is what gets compiled (the object OSObject.iig.cpo had a single
+# symbol, i.e. it was built from the empty implementation). So put the stub where the build
+# looks: both next to the source and in the object directory, then remove the object.
 install_stub() {
-	local objdir=$XNU_SRC/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}
+	local objdir=$XNU_SRC/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG} d
 	cp "$TOP/linux/iig-impl/OSObject.iig.cpp" "$XNU_SRC/iokit/DriverKit/OSObject.iig.cpp"
-	rm -f "$objdir"/iokit/*/OSObject.iig.cpo "$objdir"/iokit/OSObject.iig.cpo
-	echo "build-with-iig: OSObject.iig.cpp replaced with the generated stubs; its object removed"
+	for d in "$objdir"/iokit "$objdir"/iokit/*/; do
+		[ -d "$d" ] || continue
+		cp "$TOP/linux/iig-impl/OSObject.iig.cpp" "$d/OSObject.iig.cpp"
+		rm -f "$d/OSObject.iig.cpo"
+	done
+	echo "build-with-iig: OSObject.iig.cpp (tree + build dir) replaced with the generated stubs; object removed"
 	echo "build-with-iig: tree file now $(wc -c <"$XNU_SRC/iokit/DriverKit/OSObject.iig.cpp") bytes, $(grep -c '__iig_stub_' "$XNU_SRC/iokit/DriverKit/OSObject.iig.cpp") stubs"
 }
 
