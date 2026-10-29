@@ -34,6 +34,19 @@ patch_files=("$PATCHES_DIR"/*.patch)
 stage_files=("$PATCHES_DIR"/*.sh)
 [ "${#patch_files[@]}" -gt 0 ] || die "no *.patch in $PATCHES_DIR"
 
+# The repository stores patches as their authors wrote them, and some were committed with CRLF
+# (0161/0162). git apply matches context byte for byte, so a CRLF patch never applies on Linux
+# even though it is fine in the repository. Normalise a copy; nothing else about the files
+# changes, and the report names the same files.
+NORM=$(mktemp -d "${TMPDIR:-/tmp}/patches-lf.XXXXXX")
+trap 'rm -rf "$NORM"' EXIT
+norm_files=()
+for p in "${patch_files[@]}"; do
+	tr -d '\r' <"$p" >"$NORM/$(basename "$p")"
+	norm_files+=("$NORM/$(basename "$p")")
+done
+patch_files=("${norm_files[@]}")
+
 # known-skips.txt: one file name per line, #-comments and blank lines ignored
 declare -A known=()
 if [ -f "$HERE/known-skips.txt" ]; then

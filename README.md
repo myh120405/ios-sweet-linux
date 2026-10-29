@@ -75,14 +75,24 @@ that XNU builds on `ubuntu-latest` with theos and stock clang. See `NOTICE`.
 These do not change `xnu/patches`; they are applied after the series and reported so they can
 be folded into it:
 
-- `0001-kalloc-stock-clang-void-ptr.patch` — `KALLOC_TYPE_IS_COMPATIBLE_PTR` dereferences the
-  pointer it checks. For a `void *` that is the warning `-Wvoid-ptr-dereference` on Apple's
-  clang, but an error on stock clang. With `XNU_NO_TYPE_BUILTINS`
-  (`linux/hostinc/xnu_clang_compat.h`) there is no signature to compare, so the check is `1`.
-- `0002-sweet-rpmh-rh-send-enable.patch` — patch 0161 made `rh_send()`'s register values use
-  `enable`, but `rh_send()` has no such parameter (the change belongs to the new
-  `sweet_rpmh_vreg_set()`). `rh_send()` gets the parameter and `sweet_rpmh_vreg_set()` passes
-  it.
+- `0001-kalloc-stock-clang-void-ptr.patch` — `osfmk/kern/kalloc.h`,
+  `KALLOC_TYPE_IS_COMPATIBLE_PTR` (the `_Static_assert` in `KALLOC_TYPE_ASSERT_COMPATIBLE_POINTER`,
+  used by `IOFreeType`/`IOMallocType` in `iokit/IOKit/IOLib.h`): it dereferences the pointer it
+  checks, which for a `void *` is the warning `-Wvoid-ptr-dereference` on Apple's clang but a
+  hard error on stock clang. With `XNU_NO_TYPE_BUILTINS` (`linux/hostinc/xnu_clang_compat.h`)
+  there is no signature to compare, so the check becomes `1`.
+- `0002-sweet-rpmh-vreg-set-prototype.patch` — `bsd/dev/sweet_rpmh.c`: 0161 (fixed upstream in
+  `ea725494`) writes `sweet_rpmh_vreg_enable()` calling `sweet_rpmh_vreg_set()` before its
+  definition. Apple's clang 15 only warns about the implicit declaration; stock clang 18 makes
+  it an error. One forward declaration fixes it; it belongs in 0161.
+- `0003-corecrypto-sha256-asm-operands.patch` — `osfmk/arm64/corecrypto/sha256_compress_arm64.s`:
+  the SHA256 instructions are written with bare register numbers (`SHA256SU0 0, 1`), which
+  Apple's assembler accepts and stock clang's does not (`invalid operand for instruction`).
+  Rewritten to the canonical forms (`sha256su0 v0.4s, v1.4s`, `sha256h q18, q19, v4.4s`).
+
+The series itself is taken at the pinned commit and applied unmodified, except that CRLF line
+endings are stripped from a temporary copy (`0161`/`0162` were committed with CRLF, which
+`git apply` cannot match on Linux). That is a byte-level normalisation, not a content change.
 
 The newest patches (0158-0162) have never been through a compiler: the last successful macOS
 run was `40831765215` at `b57ab716`, before they were added. This Linux route is therefore the

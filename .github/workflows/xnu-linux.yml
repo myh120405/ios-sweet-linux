@@ -25,7 +25,7 @@ on:
         default: myh982516/ios-sweet-umi
       patches_sha:
         description: commit of that repository to take the patches from
-        default: 2e60980a9d8725da5fddca67ff9bdb1e85f2b43a
+        default: ea725494f7cf1e277c71b6acbd5973c430e85713
       xnu_tag:
         description: apple-oss-distributions/xnu tag to build on
         default: xnu-8796.141.3
@@ -52,7 +52,7 @@ env:
   MACHINE_CONFIG: ${{ inputs.machine_config || 'SWEET' }}
   KERNEL_CONFIG: ${{ inputs.kernel_config || 'DEVELOPMENT' }}
   PATCHES_REPO: ${{ inputs.patches_repo || 'myh982516/ios-sweet-umi' }}
-  PATCHES_SHA: ${{ inputs.patches_sha || '2e60980a9d8725da5fddca67ff9bdb1e85f2b43a' }}
+  PATCHES_SHA: ${{ inputs.patches_sha || 'ea725494f7cf1e277c71b6acbd5973c430e85713' }}
   EXPECTED_PATCHES: 149
   # the macOS build applies 140 of the 149 and skips these nine (run 40831765215)
   EXPECTED_APPLIED: 140
