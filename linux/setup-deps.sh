@@ -70,9 +70,11 @@ stage1() {
 	fi
 
 	# --- host tools -------------------------------------------------------------------------
-	mkdir -p host/bin hostinc/mach-o
-	for f in loader.h nlist.h fat.h; do
-		[ -f hostinc/mach-o/$f ] || cp "$XNU_SRC/EXTERNAL_HEADERS/mach-o/$f" hostinc/mach-o/
+	mkdir -p host/bin
+	# XNU's host tools include <mach-o/...>; the five headers they need (three from the xnu
+	# tree, arch.h and swap.h written here) are in linux/hostinc, which HOST_CC points at.
+	for f in loader.h nlist.h fat.h arch.h swap.h; do
+		[ -f "$TOP/linux/hostinc/mach-o/$f" ] || die "missing linux/hostinc/mach-o/$f"
 	done
 	# mig: Apple's own does not build on glibc; this is a port that does
 	if [ ! -x host/bin/migcom ] || [ ! -x host/bin/mig ]; then
