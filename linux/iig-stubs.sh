@@ -22,22 +22,26 @@ mkdir -p "$OUT"
 python3 - "$LOG" "$OUT/undefined.txt" <<'PY'
 import re, sys
 log, out = sys.argv[1], sys.argv[2]
-syms, inblock = [], False
-for line in open(log, errors='replace'):
-    s = line.rstrip('\n')
+lines = open(log, errors='replace').read().splitlines()
+# Only the *last* "Undefined symbols" block counts: the log is appended to across stub rounds,
+# and a symbol that an earlier round defined must not be stubbed again (that is how the
+# "__ZTV16IODispatchSource is already defined" error happened).
+last = None
+for i, s in enumerate(lines):
     if s.startswith('Undefined symbols'):
-        inblock = True
-        continue
-    if inblock:
+        last = i
+syms = []
+if last is not None:
+    for s in lines[last + 1:]:
         m = re.match(r'\s+"([^"]+)"', s)
         if m:
             syms.append(m.group(1))
             continue
         if not s.strip() or s.startswith('ld:'):
-            inblock = False
+            break
 syms = list(dict.fromkeys(syms))
 open(out, 'w').write('\n'.join(syms) + '\n')
-print('iig-stubs: %d undefined symbols in %s' % (len(syms), log))
+print('iig-stubs: %d undefined symbols in the last link of %s' % (len(syms), log))
 PY
 
 before=$(sha256sum "$OUT/OSObject.iig.cpp" 2>/dev/null | cut -d' ' -f1 || true)
