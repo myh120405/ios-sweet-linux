@@ -27,6 +27,18 @@ install_stub() {
 	cp "$TOP/linux/iig-impl/OSObject.iig.cpp" "$XNU_SRC/iokit/DriverKit/OSObject.iig.cpp"
 	rm -f "$objdir"/iokit/*/OSObject.iig.cpo "$objdir"/iokit/OSObject.iig.cpo
 	echo "build-with-iig: OSObject.iig.cpp replaced with the generated stubs; its object removed"
+	echo "build-with-iig: tree file now $(wc -c <"$XNU_SRC/iokit/DriverKit/OSObject.iig.cpp") bytes, $(grep -c '__iig_stub_' "$XNU_SRC/iokit/DriverKit/OSObject.iig.cpp") stubs"
+}
+
+# After a rebuild, say whether the object that just got compiled really carries the stubs.
+show_stub_objects() {
+	local f n
+	for f in "$XNU_SRC"/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}/iokit/*/OSObject.iig.cpo \
+		"$XNU_SRC"/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}/iokit/OSObject.iig.cpo; do
+		[ -f "$f" ] || continue
+		n=$(deps/host/bin/nm "$f" 2>/dev/null | wc -l)
+		echo "build-with-iig: object $f: $n symbols, $(deps/host/bin/nm "$f" 2>/dev/null | grep -c 'IOEventLink') IOEventLink, $(deps/host/bin/nm "$f" 2>/dev/null | grep -c 'IOUserServer') IOUserServer"
+	done
 }
 
 echo "build-with-iig: kernel will be $K"
@@ -41,6 +53,7 @@ for attempt in 1 2 3; do
 	bash "$TOP/linux/iig-stubs.sh" "$LOG" || exit 1
 	install_stub
 	run
+	show_stub_objects
 done
 [ -s "$K" ] || { echo "build-with-iig: still no kernel after $attempt stub rounds; see $LOG"; exit 1; }
 

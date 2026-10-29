@@ -25,7 +25,7 @@ on:
         default: myh982516/ios-sweet-umi
       patches_sha:
         description: commit of that repository to take the patches from
-        default: ea725494f7cf1e277c71b6acbd5973c430e85713
+        default: 952cf3329e24c99adbb08f13fb78afe57f72ffc4
       xnu_tag:
         description: apple-oss-distributions/xnu tag to build on
         default: xnu-8796.141.3
@@ -52,7 +52,7 @@ env:
   MACHINE_CONFIG: ${{ inputs.machine_config || 'SWEET' }}
   KERNEL_CONFIG: ${{ inputs.kernel_config || 'DEVELOPMENT' }}
   PATCHES_REPO: ${{ inputs.patches_repo || 'myh982516/ios-sweet-umi' }}
-  PATCHES_SHA: ${{ inputs.patches_sha || 'ea725494f7cf1e277c71b6acbd5973c430e85713' }}
+  PATCHES_SHA: ${{ inputs.patches_sha || '952cf3329e24c99adbb08f13fb78afe57f72ffc4' }}
   EXPECTED_PATCHES: 149
   # the macOS build applies 140 of the 149 and skips these nine (run 40831765215)
   EXPECTED_APPLIED: 140
@@ -71,6 +71,9 @@ jobs:
 
       - name: Kernel patches (pinned commit)
         run: |
+          # CRLF in the checkout would break git apply; the patch repository is LF and the
+          # runner's default is autocrlf=false. Set it explicitly so no setting can creep in.
+          git config --global core.autocrlf false
           git init -q patches-src
           git -C patches-src remote add origin "https://github.com/$PATCHES_REPO.git"
           git -C patches-src fetch -q --depth 1 origin "$PATCHES_SHA"
@@ -149,6 +152,9 @@ jobs:
 
       - name: Kernel patches (pinned commit)
         run: |
+          # CRLF in the checkout would break git apply; the patch repository is LF and the
+          # runner's default is autocrlf=false. Set it explicitly so no setting can creep in.
+          git config --global core.autocrlf false
           git init -q patches-src
           git -C patches-src remote add origin "https://github.com/$PATCHES_REPO.git"
           git -C patches-src fetch -q --depth 1 origin "$PATCHES_SHA"
