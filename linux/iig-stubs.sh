@@ -47,8 +47,10 @@ PY
 before=$(sha256sum "$OUT/OSObject.iig.cpp" 2>/dev/null | cut -d' ' -f1 || true)
 # Accumulate: every round adds the symbols the previous stub file does not cover yet. The kernel
 # needs all of them at once (the 16 other iig classes are empty translation units), so the set
-# only grows; a symbol an earlier round already defined is not reported as undefined again.
-cat "$OUT/undefined.txt" "$OUT/undefined-all.txt" 2>/dev/null | sed '/^$/d' | sort -u >"$OUT/undefined-all.txt.tmp"
+# only grows. undefined-all.txt must exist on the first round, otherwise `cat` fails under
+# `set -e` and the whole build script stops after the (expected) first link failure.
+: >>"$OUT/undefined-all.txt"
+cat "$OUT/undefined.txt" "$OUT/undefined-all.txt" | sed '/^$/d' | sort -u >"$OUT/undefined-all.txt.tmp"
 mv "$OUT/undefined-all.txt.tmp" "$OUT/undefined-all.txt"
 echo "iig-stubs: $(wc -l <"$OUT/undefined-all.txt") symbols in the accumulated set"
 python3 "$TOP/linux/gen-iig-stubs.py" "$OUT/undefined-all.txt" "$OUT" $SYMS

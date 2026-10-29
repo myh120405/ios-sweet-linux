@@ -67,19 +67,24 @@ show_stub_objects() {
 
 echo "build-with-iig: kernel will be $K"
 run
-for attempt in 1 2 3; do
+for attempt in 1 2 3 4; do
 	[ -s "$K" ] && break
 	if ! grep -q 'Undefined symbols' "$LOG"; then
 		echo "build-with-iig: no kernel and the linker did not report undefined symbols; see $LOG"
 		exit 1
 	fi
 	echo "build-with-iig: generating DriverKit stubs from $LOG (attempt $attempt)"
-	bash "$TOP/linux/iig-stubs.sh" "$LOG" || exit 1
+	bash "$TOP/linux/iig-stubs.sh" "$LOG" || { echo "build-with-iig: stub generation failed"; exit 1; }
 	install_stub
+	# this link is expected to fail; its failure must not stop the loop (build.sh's status is ignored)
 	run
 	show_stub_objects
 done
-[ -s "$K" ] || { echo "build-with-iig: still no kernel after $attempt stub rounds; see $LOG"; exit 1; }
+if [ ! -s "$K" ]; then
+	echo "build-with-iig: still no kernel after $attempt stub rounds; last undefined symbols:"
+	sed -n '/Undefined symbols/,$p' "$LOG" | grep -E '^\s+"' | sed 's/^/  /' | sort -u | head -80
+	exit 1
+fi
 
 # second pass: with the kernel's own symbols known, forward the wrappers that have an _Impl
 if deps/host/bin/nm -n "$K" >"$TOP/kernel.syms" 2>/dev/null && [ -s "$TOP/kernel.syms" ]; then
