@@ -194,7 +194,7 @@ jobs:
 
       - name: Check the kernel
         run: |
-          K="$GITHUB_WORKSPACE/xnu-src/$XNU_TAG/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}/mach.$(echo $KERNEL_CONFIG | tr A-Z a-z).$(echo $MACHINE_CONFIG | tr A-Z a-z)"
+          K="$GITHUB_WORKSPACE/xnu-src/$XNU_TAG/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}/kernel.$(echo $KERNEL_CONFIG | tr A-Z a-z).$(echo $MACHINE_CONFIG | tr A-Z a-z)"
           echo "kernel path: $K"
           if grep -q "built kernel at" build.log; then echo "xnu reports: $(grep 'built kernel at' build.log)"; fi
           if [ ! -s "$K" ]; then
@@ -205,10 +205,15 @@ jobs:
             grep -n -m 40 -E "error:|Error|failed" build.log || true
             exit 1
           fi
+          size=$(stat -c %s "$K")
+          echo "kernel size: $size bytes"
+          [ "$size" -gt 5000000 ] || { echo "::error::$K is only $size bytes - not a kernel"; exit 1; }
           ls -la "$K"
           file "$K"
           deps/host/bin/otool -h "$K" 2>/dev/null | head -20 || true
-          if deps/host/bin/nm "$K" 2>/dev/null | grep -q -w umi_touch_init; then
+          KU="$K.unstripped"
+          [ -s "$KU" ] && deps/host/bin/nm "$KU" 2>/dev/null | grep -c . || true
+          if deps/host/bin/nm "$KU" 2>/dev/null | grep -q -w umi_touch_init; then
             echo "umi_touch_init is in the kernel"
           elif grep -qa _umi_touch_init "$K"; then
             echo "umi_touch_init is in the kernel (string table)"
@@ -221,7 +226,7 @@ jobs:
         if: always()
         run: |
           mkdir -p out
-          K="$GITHUB_WORKSPACE/xnu-src/$XNU_TAG/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}/mach.$(echo $KERNEL_CONFIG | tr A-Z a-z).$(echo $MACHINE_CONFIG | tr A-Z a-z)"
+          K="$GITHUB_WORKSPACE/xnu-src/$XNU_TAG/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}/kernel.$(echo $KERNEL_CONFIG | tr A-Z a-z).$(echo $MACHINE_CONFIG | tr A-Z a-z)"
           if [ -s "$K" ]; then cp "$K" "out/kernel.$(echo $KERNEL_CONFIG | tr A-Z a-z).$(echo $MACHINE_CONFIG | tr A-Z a-z)"; fi
           (cd out && sha256sum kernel.* > SHA256SUMS) || true
           ls -la out

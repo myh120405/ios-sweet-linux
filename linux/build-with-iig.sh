@@ -11,7 +11,7 @@
 set -uo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/env.sh"
 LOG=$TOP/build.log
-K=$XNU_SRC/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}/mach.$(echo "$KERNEL_CONFIG" | tr 'A-Z' 'a-z').$(echo "$MACHINE_CONFIG" | tr 'A-Z' 'a-z')
+K=$XNU_SRC/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}/kernel.$(echo "$KERNEL_CONFIG" | tr 'A-Z' 'a-z').$(echo "$MACHINE_CONFIG" | tr 'A-Z' 'a-z')
 : >"$LOG"
 
 run() {
@@ -87,7 +87,7 @@ if [ ! -s "$K" ]; then
 fi
 
 # second pass: with the kernel's own symbols known, forward the wrappers that have an _Impl
-if deps/host/bin/nm -n "$K" >"$TOP/kernel.syms" 2>/dev/null && [ -s "$TOP/kernel.syms" ]; then
+if deps/host/bin/nm -n "$K.unstripped" >"$TOP/kernel.syms" 2>/dev/null && [ -s "$TOP/kernel.syms" ]; then
 	before=$(sha256sum "$TOP/linux/iig-impl/OSObject.iig.cpp" 2>/dev/null | cut -d' ' -f1)
 	bash "$TOP/linux/iig-stubs.sh" "$LOG" "$TOP/kernel.syms" || true
 	after=$(sha256sum "$TOP/linux/iig-impl/OSObject.iig.cpp" 2>/dev/null | cut -d' ' -f1)
