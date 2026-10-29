@@ -73,7 +73,7 @@ report_failure() {
 	echo "----- git apply said:"
 	sed 's/^/  /' "$XNU_SRC/.apply.err"
 	echo "----- files in the patch:"
-	grep '^diff --git' "$p" | sed 's/^/  /'
+	grep -E '^diff --git|^--- a/|^\+\+\+ b/' "$p" | sed 's/^/  /' || echo "  (no file headers in the patch)"
 	echo "----- patch -p1 --dry-run (hunk-level detail: which hunk, at which line, offset):"
 	(cd "$XNU_SRC" && patch -p1 --dry-run --forward <"$p" 2>&1 || true) | sed 's/^/  /'
 }
