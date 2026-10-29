@@ -52,11 +52,11 @@ install_stub() {
 # After a rebuild, say whether the objects that got compiled really carry the stubs.
 show_stub_objects() {
 	local f n missing=0
-	for f in $(find "$XNU_SRC/BUILD/obj" -name '*.iig.cpp' 2>/dev/null); do
+	for f in $(find "$XNU_SRC/BUILD/obj" -name 'OSObject.iig.cpp' 2>/dev/null); do
 		n=$(grep -c 'kIOReturnUnsupported\|_Impl' "$f" || true)
 		[ "$n" -gt 0 ] || { echo "STUB MISSING: $f"; missing=$((missing + 1)); }
 	done
-	echo "build-with-iig: stub files with content: $(find "$XNU_SRC/BUILD/obj" -name '*.iig.cpp' -exec grep -l 'kIOReturnUnsupported\|_Impl' {} + 2>/dev/null | wc -l), missing: $missing"
+	echo "build-with-iig: OSObject.iig.cpp copies with stubs: $(find "$XNU_SRC/BUILD/obj" -name 'OSObject.iig.cpp' -exec grep -l 'kIOReturnUnsupported\|_Impl' {} + 2>/dev/null | wc -l), missing: $missing"
 	for f in "$XNU_SRC"/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}/iokit/*/OSObject.iig.cpo \
 		"$XNU_SRC"/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}/iokit/OSObject.iig.cpo; do
 		[ -f "$f" ] || continue
