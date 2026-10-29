@@ -19,13 +19,13 @@ run() {
 }
 
 # The generated OSObject.iig.cpp is a *source* file in the tree; make compiles it into
-# BUILD/obj/<config>/iokit/OSObject.iig.cpo. Copying the stub over the source and removing that
-# object is what makes make compile it: the iig rule itself only runs when its .h is out of
-# date, and deleting the .h would just regenerate an empty implementation.
+# BUILD/obj/<config>/iokit/<KERNEL_CONFIG>/OSObject.iig.cpo. Copying the stub over the source and
+# removing that object is what makes make compile it: the iig rule itself only runs when its .h
+# is out of date, and deleting the .h would just regenerate an empty implementation.
 install_stub() {
 	local objdir=$XNU_SRC/BUILD/obj/${KERNEL_CONFIG}_ARM64_${MACHINE_CONFIG}
 	cp "$TOP/linux/iig-impl/OSObject.iig.cpp" "$XNU_SRC/iokit/DriverKit/OSObject.iig.cpp"
-	rm -f "$objdir"/iokit/OSObject.iig.cpo
+	rm -f "$objdir"/iokit/*/OSObject.iig.cpo "$objdir"/iokit/OSObject.iig.cpo
 	echo "build-with-iig: OSObject.iig.cpp replaced with the generated stubs; its object removed"
 }
 
