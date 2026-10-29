@@ -18,6 +18,19 @@ run() {
 	bash "$TOP/linux/build.sh" -k 2>&1 | tee -a "$LOG"
 }
 
+# The iig rule is a pattern rule for <Class>.h; <Class>.iig.cpp is only a side effect of it. If
+# the .h is already there and newer than the .iig, make never runs iig again and the regenerated
+# OSObject.iig.cpp would never be copied into the tree. Removing both outputs of the rule makes
+# make run it, and it picks the stub file up.
+refresh_iig_outputs() {
+	local f
+	for f in "$XNU_SRC"/iokit/DriverKit/*.iig; do
+		[ -f "$f" ] || continue
+		rm -f "${f%.iig}.h" "${f%.iig}.iig.cpp"
+	done
+	echo "build-with-iig: removed the generated DriverKit headers and implementations so iig runs again"
+}
+
 echo "build-with-iig: kernel will be $K"
 run
 for attempt in 1 2 3; do
@@ -28,6 +41,7 @@ for attempt in 1 2 3; do
 	fi
 	echo "build-with-iig: generating DriverKit stubs from $LOG (attempt $attempt)"
 	bash "$TOP/linux/iig-stubs.sh" "$LOG" || exit 1
+	refresh_iig_outputs
 	run
 done
 [ -s "$K" ] || { echo "build-with-iig: still no kernel after $attempt stub rounds; see $LOG"; exit 1; }
@@ -39,6 +53,7 @@ if deps/host/bin/nm -n "$K" >"$TOP/kernel.syms" 2>/dev/null && [ -s "$TOP/kernel
 	after=$(sha256sum "$TOP/linux/iig-impl/OSObject.iig.cpp" 2>/dev/null | cut -d' ' -f1)
 	if [ "$before" != "$after" ]; then
 		echo "build-with-iig: relinking with the wrappers that forward to their _Impl"
+		refresh_iig_outputs
 		run
 	fi
 fi

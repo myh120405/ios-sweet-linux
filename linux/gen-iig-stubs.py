@@ -106,6 +106,35 @@ for i, sym in enumerate(unsupported):
     out.append('kern_return_t __iig_stub_%d(void) __asm__("%s");' % (i, sym))
     out.append('kern_return_t __iig_stub_%d(void) { return kIOReturnUnsupported; }' % i)
 out.append('}')
+# Symbols the kernel's own sources reference but the macOS kernel gets from a library the Linux
+# link does not have. Weak, so a real definition wins if it is linked:
+#   __cxa_atexit                  libkern/c++/bootstrap.cpp registers destructors through it
+#   __llvm_profile_*_internal     libkern/c++/OSKext.cpp dumps PGO data through them
+# and the vtable of IODispatchSource, which the real iig-generated code would emit because it
+# defines the class's key virtual function. The class is only constructed on the DriverKit
+# paths (IOUserServer.cpp); every slot points at a function returning kIOReturnUnsupported.
+out.append(r'''
+extern "C" {
+__attribute__((weak)) int __cxa_atexit(void (*func)(void *), void *arg, void *dso)
+{ (void)func; (void)arg; (void)dso; return 0; }
+__attribute__((weak)) unsigned long long __llvm_profile_get_size_for_buffer_internal(
+    const char *a, const char *b, const char *c, const char *d, const char *e, const char *f)
+{ (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; return 0; }
+__attribute__((weak)) int __llvm_profile_write_buffer_internal(
+    char *buf, const char *a, const char *b, const char *c, const char *d, const char *e, const char *f)
+{ (void)buf; (void)a; (void)b; (void)c; (void)d; (void)e; (void)f; return 0; }
+}
+
+static kern_return_t __iig_vtable_unsupported(void) { return kIOReturnUnsupported; }
+
+__attribute__((weak, used)) void *__iig_iodispatchsource_vtable[8]
+    __asm__("__ZTV16IODispatchSource") = {
+	(void *)0, (void *)0,
+	(void *)&__iig_vtable_unsupported, (void *)&__iig_vtable_unsupported,
+	(void *)&__iig_vtable_unsupported, (void *)&__iig_vtable_unsupported,
+	(void *)&__iig_vtable_unsupported, (void *)&__iig_vtable_unsupported,
+};
+''')
 os.makedirs(outdir, exist_ok=True)
 open(os.path.join(outdir, 'OSObject.iig.cpp'), 'w').write('\n'.join(out) + '\n')
 print('metaclasses:', len(want), 'forwarded to _Impl:', len(direct), 'unsupported stubs:', len(unsupported))
