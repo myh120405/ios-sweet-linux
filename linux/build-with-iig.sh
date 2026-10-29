@@ -42,6 +42,8 @@ show_stub_objects() {
 		[ -f "$f" ] || continue
 		n=$(deps/host/bin/nm "$f" 2>/dev/null | wc -l)
 		echo "build-with-iig: object $f: $n symbols, $(deps/host/bin/nm "$f" 2>/dev/null | grep -c 'IOEventLink') IOEventLink, $(deps/host/bin/nm "$f" 2>/dev/null | grep -c 'IOUserServer') IOUserServer"
+		# the dependency file names the source the object was compiled from
+		[ -f "${f%.cpo}.d" ] && echo "build-with-iig:   ${f%.cpo}.d: $(head -3 "${f%.cpo}.d" | tr '\n' ' ')"
 	done
 }
 
