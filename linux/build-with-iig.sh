@@ -24,13 +24,14 @@ run() {
 # so the implementation is written next to whatever .h it generated. In this build the generated
 # headers end up in BUILD/obj/<config>/iokit/<KERNEL_CONFIG>/DriverKit/, one level below the
 # object (BUILD/obj/<config>/iokit/<KERNEL_CONFIG>/OSObject.iig.cpo). Steps, in this order:
-#   1. drop empty implementations an earlier iig run left behind (before copying the stub);
-#   2. write the stub next to each generated OSObject.h and in the source tree, and touch it;
-#   3. remove every DriverKit object in that layer so make compiles the stubs again.
+#   1. write the stub next to each generated OSObject.h and in the source tree, and touch it;
+#   2. remove every DriverKit object in that layer so make compiles them again.
+# The empty implementations of the other classes must be left alone: they are side effects of
+# their .h rule, and with the .h in place make has no rule to recreate them ("No rule to make
+# target 'DriverKit/OSAction.iig.cpp'"). They are empty because all the symbols they would carry
+# are defined once, in OSObject.iig.cpp.
 install_stub() {
 	local stub=$TOP/linux/iig-impl/OSObject.iig.cpp hdr d
-	find "$XNU_SRC/BUILD/obj" -name '*.iig.cpp' -size -200c -print -delete 2>/dev/null |
-		sed 's/^/build-with-iig: removed empty /'
 	cp "$stub" "$XNU_SRC/iokit/DriverKit/OSObject.iig.cpp"
 	touch "$XNU_SRC/iokit/DriverKit/OSObject.iig.cpp"
 	while IFS= read -r hdr; do
