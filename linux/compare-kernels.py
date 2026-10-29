@@ -63,6 +63,25 @@ def main():
         print("  %-20s %22s %22s" % (name, fa, fb))
     print("\nsymtab (symoff, nsyms, stroff, strsize):", a["symtab"], b["symtab"])
 
+    # symbol names, so the two kernels can be asked for the same drivers
+    names = sys.argv[3:]
+    for k in (a, b):
+        data = open(k["path"], "rb").read()
+        symoff, nsyms, stroff, strsize = k["symtab"]
+        strs = data[stroff:stroff + strsize]
+        found = 0
+        table = set()
+        for i in range(nsyms):
+            n_strx = struct.unpack_from("<I", data, symoff + i * 16)[0]
+            end = strs.find(b"\0", n_strx)
+            table.add(strs[n_strx:end].decode("utf-8", "replace"))
+        k["symbols"] = table
+        print("%s: %d symbols" % (k["path"], nsyms))
+    if names:
+        print("\n%-32s %6s %6s" % ("symbol", "a", "b"))
+        for n in names:
+            print("%-32s %6s %6s" % (n, n in a["symbols"], n in b["symbols"]))
+
 
 if __name__ == "__main__":
     main()

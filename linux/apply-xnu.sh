@@ -143,7 +143,8 @@ log "makedefs/MakeInc.cmd: XCRUN, HOST_CODESIGN and PLUTIL now resolve from PATH
 # SETUP/config/doconf, the script that turns config/MASTER.* into per-directory Makefiles, is
 # the one csh script in the build and starts with #!/bin/csh -f. Linux has no /bin/csh (the
 # tcsh that setup-deps builds is on PATH as `csh`); the shebang is the only thing to change.
-sed -i 's|^#!/bin/csh -f$|#!/usr/bin/env csh -f|' "$XNU_SRC/SETUP/config/doconf"
-grep -q '^#!/usr/bin/env csh -f$' "$XNU_SRC/SETUP/config/doconf" ||
+# Linux passes the rest of the shebang as one argument, hence env -S, which splits it.
+sed -i 's|^#!/bin/csh -f$|#!/usr/bin/env -S csh -f|' "$XNU_SRC/SETUP/config/doconf"
+grep -q '^#!/usr/bin/env -S csh -f$' "$XNU_SRC/SETUP/config/doconf" ||
 	die "could not point SETUP/config/doconf at the csh on PATH"
-log "SETUP/config/doconf: runs under env csh"
+log "SETUP/config/doconf: runs under env -S csh -f"
