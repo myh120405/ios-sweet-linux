@@ -82,6 +82,7 @@ jobs:
 
       - name: macOS 13.3 SDK (the SDKROOT the kernel is compiled against)
         run: |
+          source linux/env.sh
           bash linux/setup-sdk.sh
           test -d "$MACOS_SDK/System/Library/Frameworks/Kernel.framework"
 
@@ -142,6 +143,7 @@ jobs:
 
       - name: macOS 13.3 SDK (the SDKROOT the kernel is compiled against)
         run: |
+          source linux/env.sh
           bash linux/setup-sdk.sh
           test -d "$MACOS_SDK/System/Library/Frameworks/Kernel.framework"
 

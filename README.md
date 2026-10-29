@@ -13,13 +13,12 @@ configuration. The macOS pools have been queuing with zero steps since 2026-10-2
 | xnu tag | `xnu-8796.141.3` (`1b191cb…`) | `MACOS_VERSION=13.5` in `xnu.yml` -> `distribution-macOS` `macos-135` `release.json` -> this tag |
 | patches | `myh982516/ios-sweet-umi@2e60980` (149 `.patch` + 3 `.sh`) | the same series the macOS build applies, taken at a commit so a moving `main` cannot change a build |
 | theos toolchain | `L1ghtmann/llvm-project@test-210562a` (`iOSToolchain-x86_64`) | cctools: `ld64`, `nm`, `strip`, `libtool` that understand Mach-O |
-| SDK | `theos/sdks@master-146e41f` `iPhoneOS16.5.sdk` | the kernel compiles against iOS 16.5 |
-| DriverKit headers | `MacOSX13.3.sdk` `Kernel.framework/Headers/DriverKit` | what Apple's closed `iig` would generate for the xnu-8796 family |
+| SDK | `MacOSX13.3.sdk` (joseluisq/macosx-sdks `13.3`) | the macOS build compiles with `SDKROOT=macosx`; that is what makes `XNU_TARGET_OS_OSX` / `TARGET_OS_IPHONE` — and the HFS, DriverKit and kext headers — what the patch series expects. 13.3 is the published SDK closest to xnu-8796.141.3 |
 
 ## The steps, and why each exists
 
-1. **theos + toolchain + SDK.** Linux clang compiles; `ld64` from theos links Mach-O. Stock
-   `ld` produces ELF and would fail at the first link.
+1. **theos + toolchain + macOS SDK.** Linux clang compiles; `ld64` from theos links Mach-O.
+   Stock `ld` produces ELF and would fail at the first link.
 2. **Patches at the pinned commit**, count checked (149). A different number means the pin is
    not what this workflow was written for.
 3. **`linux/apply-xnu.sh`**: fetch the one xnu tag, check its SHA, run the `patches/*.sh` stage
@@ -29,14 +28,14 @@ configuration. The macOS pools have been queuing with zero steps since 2026-10-2
    the applied count must equal the file count. Nothing is skipped.
 4. **`linux/setup-deps.sh --stage1`**: builds `mig` (a glibc port of Apple's bootstrap_cmds),
    `unifdef`, `tcsh` (XNU's `doconf` is a csh script), links the cctools next to them, and
-   builds the SDK overlay: symlinks to `iPhoneOS16.5.sdk`, `usr/local/include/kernel` headers
+   builds the SDK overlay: symlinks to `MacOSX13.3.sdk`, `usr/local/include/kernel` headers
    from libdispatch (firehose), `availability.pl`.
 5. **`exporthdrs`**: the kernel's exported headers; the firehose library compiles against them.
 6. **`linux/setup-deps.sh --stage2`**: `libfirehose_kernel.a` (libdispatch's os_log buffer code
    is open source but not in XNU; Apple links it from its internal SDK).
-7. **`linux/build.sh -k`**: `make SDKROOT=iphoneos ARCH_CONFIGS=ARM64 MACHINE_CONFIGS=SWEET
+7. **`linux/build.sh -k`**: `make SDKROOT=macosx ARCH_CONFIGS=ARM64 MACHINE_CONFIGS=SWEET
    KERNEL_CONFIGS=DEVELOPMENT BUILD_WERROR=0 BUILD_LTO=0 DO_CTFMERGE=0 CC=xnu-clang …`, with
-   `xnu-clang` forcing `-target arm64-apple-ios16.5` and `--ld-path=ld64` and dropping flags
+   `xnu-clang` forcing `-target arm64-apple-macos13.3` and `--ld-path=ld64` and dropping flags
    only Apple's clang knows. `-k` because `config/Makefile`'s export check can never pass (it
    asks for DriverKit RPC names that only iig output defines) and runs after the link.
 8. **Check**: `built kernel at` in the log, the file exists, `file` says Mach-O arm64, and
@@ -70,3 +69,21 @@ THEOS=$PWD/theos ...   # or let the workflow do it; see .github/workflows/xnu-li
 and `linux/gen-iig-stubs.py` are adapted from
 [`ls9875/hackios-umi`](https://github.com/ls9875/hackios-umi) (`xnu-deps/`), which established
 that XNU builds on `ubuntu-latest` with theos and stock clang. See `NOTICE`.
+
+## Fixes on top of the series (`linux/fixes/`)
+
+These do not change `xnu/patches`; they are applied after the series and reported so they can
+be folded into it:
+
+- `0001-kalloc-stock-clang-void-ptr.patch` — `KALLOC_TYPE_IS_COMPATIBLE_PTR` dereferences the
+  pointer it checks. For a `void *` that is the warning `-Wvoid-ptr-dereference` on Apple's
+  clang, but an error on stock clang. With `XNU_NO_TYPE_BUILTINS`
+  (`linux/hostinc/xnu_clang_compat.h`) there is no signature to compare, so the check is `1`.
+- `0002-sweet-rpmh-rh-send-enable.patch` — patch 0161 made `rh_send()`'s register values use
+  `enable`, but `rh_send()` has no such parameter (the change belongs to the new
+  `sweet_rpmh_vreg_set()`). `rh_send()` gets the parameter and `sweet_rpmh_vreg_set()` passes
+  it.
+
+The newest patches (0158-0162) have never been through a compiler: the last successful macOS
+run was `40831765215` at `b57ab716`, before they were added. This Linux route is therefore the
+first build of the current series, and the fixes above are what it found.
