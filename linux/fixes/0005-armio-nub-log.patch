@@ -1,5 +1,5 @@
 diff --git a/iokit/Kernel/arm/SweetPlatformExpert.cpp b/iokit/Kernel/arm/SweetPlatformExpert.cpp
-index 765308c..c70471c 100644
+index 765308c..f22bac1 100644
 --- a/iokit/Kernel/arm/SweetPlatformExpert.cpp
 +++ b/iokit/Kernel/arm/SweetPlatformExpert.cpp
 @@ -9,6 +9,15 @@
@@ -97,7 +97,7 @@ index 765308c..c70471c 100644
  	/*
  	 * backboardd registers a notification for IONameMatch "usb-drd,t8027" and
  	 * keeps that path open while it brings the window server up. The device tree
-@@ -106,6 +180,152 @@ SweetPlatformExpert::processTopLevel(IORegistryEntry *root)
+@@ -106,6 +180,153 @@ SweetPlatformExpert::processTopLevel(IORegistryEntry *root)
  	}
  }
  
@@ -221,6 +221,9 @@ index 765308c..c70471c 100644
 +/*
 + * How many instances of className IOKit has published right now. A class that
 + * matched shows up here whether or not its start() printed anything.
++ * The matching API hands out smart pointers; the raw pointers are used and
++ * deliberately not released (this runs a handful of times, and a release of
++ * a reference the caller does not own would be worse than the leak).
 + */
 +static unsigned int
 +sweet_service_count(const char *className)
@@ -237,12 +240,10 @@ index 765308c..c70471c 100644
 +		return 0;
 +	}
 +	found = IOService::getMatchingServices(matching);
-+	matching->release();
 +	if (found != NULL) {
 +		while (found->getNextObject() != NULL) {
 +			n++;
 +		}
-+		found->release();
 +	}
 +	return n;
 +}
