@@ -1,0 +1,44 @@
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+index 14fe2aa..3dfa159 100644
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -206,2 +206,39 @@ AppleCLCD::start(IOService *provider)
+ 	registerService();
++
++	/*
++	 * One-shot: write through the mapping the driver actually uses and read
++	 * it back. before[] shows whether this mapping reads the panel memory the
++	 * early console draws into (osfmk/arm64/sweet_early.c writes 0x9c000000
++	 * through a VA=PA mapping); after[] shows whether the write lands.
++	 *   after == 0xffff0000 and the screen shows red -> mapping fine
++	 *   after == 0xffff0000, screen unchanged       -> panel scans other memory
++	 *   after != 0xffff0000                          -> this mapping is not RAM
++	 */
++	{
++		uint32_t before[4] = { 0, 0, 0, 0 };
++		uint32_t after[4] = { 0, 0, 0, 0 };
++		volatile uint32_t *p = (volatile uint32_t *)fPixels;
++
++		printf("SWEET FB: wtest addr phys=%#llx pixels=%#llx row=%u early=%#llx\n",
++		    (unsigned long long)fPhys, (unsigned long long)fPixels,
++		    fRowBytes, 0x9c000000ULL);
++		if (p != NULL) {
++			for (int i = 0; i < 4; i++) {
++				before[i] = p[i];
++			}
++			for (int i = 0; i < 16; i++) {
++				p[i] = 0xFFFF0000u;
++			}
++			for (int i = 0; i < 4; i++) {
++				after[i] = p[i];
++			}
++			printf("SWEET FB: wtest before=%08x %08x %08x %08x after=%08x %08x %08x %08x\n",
++			    before[0], before[1], before[2], before[3],
++			    after[0], after[1], after[2], after[3]);
++		} else {
++			printf("SWEET FB: wtest base=NULL phys=%#llx row=%u\n",
++			    (unsigned long long)fPhys, fRowBytes);
++		}
++	}
++
+ 	IOLog("SWEET FB: AppleCLCD %ux%u stride %u at 0x%llx, default surface %u, presented as %ux%u\n",
