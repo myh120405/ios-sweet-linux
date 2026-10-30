@@ -129,7 +129,7 @@ fi
 # the series stays byte-identical to myh982516/ios-sweet-umi. See linux/fixes/ and README.md.
 for f in "$HERE"/fixes/*.patch; do
 	[ -f "$f" ] || continue
-	git -C "$XNU_SRC" apply --whitespace=nowarn "$f" ||
+	git -C "$XNU_SRC" apply -v --whitespace=nowarn "$f" ||
 		die "overlay fix $(basename "$f") does not apply to $XNU_TAG"
 	log "overlay fix $(basename "$f")"
 done
