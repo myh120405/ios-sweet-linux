@@ -1,10 +1,8 @@
 diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
-index 14fe2aa..4a3f4b2 100644
+index 14fe2aa..03f9a3f 100644
 --- a/iokit/Kernel/arm/SweetFramebuffer.cpp
 +++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
-@@ -87,6 +87,101 @@ class IOMobileFramebuffer : public IOService {
- };
- 
+@@ -89,2 +89,97 @@ class IOMobileFramebuffer : public IOService {
  OSDefineMetaClassAndStructors(IOMobileFramebuffer, IOService);
 +/*
 + * Drawing diagnostics (see the notes in the ring dump order):
@@ -102,11 +100,7 @@ index 14fe2aa..4a3f4b2 100644
 +
 +
  
- class IOMobileFramebufferUserClient;
- 
-@@ -213,6 +308,25 @@ void
- AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
- {
+@@ -215,2 +310,21 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
  	AppleCLCD *fb = (AppleCLCD *)owner;
 +	static unsigned int sweet_fb_vsync_logged;
 +
@@ -128,20 +122,3 @@ index 14fe2aa..4a3f4b2 100644
 +		}
 +	}
  	uint64_t now = mach_absolute_time();
- 	uint64_t count = ++fb->fVsyncCount;
- 	uint64_t values[6] = {
-@@ -314,6 +428,14 @@ AppleCLCD::swap(const uint8_t *rec)
- void
- AppleCLCD::present(const uint8_t *rec)
- {
-+	static unsigned int sweet_fb_present_calls;
-+
-+	if (sweet_fb_present_calls < 3) {
-+		sweet_fb_present_calls++;
-+		sweet_fb_note("present", sweet_fb_present_calls,
-+		    (unsigned long long)rec, (unsigned long long)fPixels,
-+		    (unsigned long long)fDirty);
-+	}
- 	uint32_t mask = get32(rec, 0x104);
- 
- 
