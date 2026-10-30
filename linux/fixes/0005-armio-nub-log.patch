@@ -1,18 +1,24 @@
 diff --git a/iokit/Kernel/arm/SweetPlatformExpert.cpp b/iokit/Kernel/arm/SweetPlatformExpert.cpp
-index 765308c..8f0b3e2 100644
+index 765308c..c70471c 100644
 --- a/iokit/Kernel/arm/SweetPlatformExpert.cpp
 +++ b/iokit/Kernel/arm/SweetPlatformExpert.cpp
-@@ -9,6 +9,9 @@
+@@ -9,6 +9,15 @@
  #include <IOKit/IOPlatformExpert.h>
  #include <IOKit/IODeviceTreeSupport.h>
  #include <IOKit/IOLib.h>
 +#include <pexpert/pexpert.h>		/* PE_Video, PE_current_console, PE_boot_args */
 +#include <libkern/c++/OSData.h>
 +#include <libkern/c++/OSDictionary.h>
++#include <kern/sched_prim.h>		/* kernel_thread_start */
++#include <kern/thread.h>		/* thread_deallocate */
++
++/* defined at the end of this file; processTopLevel starts the reporter */
++static void sweet_report_start(void);
++static unsigned int sweet_service_count(const char *className);
  
  class SweetPlatformExpert : public IODTPlatformExpert {
  	OSDeclareDefaultStructors(SweetPlatformExpert);
-@@ -74,12 +77,73 @@ SweetPlatformExpert::processTopLevel(IORegistryEntry *root)
+@@ -74,12 +83,77 @@ SweetPlatformExpert::processTopLevel(IORegistryEntry *root)
  	 * driven by the platform code and gets no nub. The nubs hang off this
  	 * platform expert: IOPlatformDevice::compareName asks its provider.
  	 */
@@ -84,21 +90,139 @@ index 765308c..8f0b3e2 100644
 +		IOLog("SWEET: dt nodes %u (first 400 printed)\n", nodes);
 +	}
 +
++	/* A few seconds from now IOKit has matched everything: report the counts. */
++	sweet_report_start();
++
++
  	/*
  	 * backboardd registers a notification for IONameMatch "usb-drd,t8027" and
  	 * keeps that path open while it brings the window server up. The device tree
-@@ -106,6 +170,38 @@ SweetPlatformExpert::processTopLevel(IORegistryEntry *root)
+@@ -106,6 +180,152 @@ SweetPlatformExpert::processTopLevel(IORegistryEntry *root)
  	}
  }
  
 +/*
-+ * How many instances of className IOKit has published right now. Called from
-+ * the reporter thread in bsd/dev/sweet_ufs.c a few seconds into the boot (and
-+ * again later) and written straight into the persistent ring, so the answer
-+ * survives even when boot-arg sweetquiet=1 has muted the console. A class that
++ * ---- sweetquiet=1 and the post-mute service report --------------------
++ *
++ * The console ring keeps its LAST 4 MiB, so the launchd flood pushes the
++ * early boot log out of it and a dump could only ever show the tail.
++ * sweetquiet=1 (read at the first user-space exec, see bsd/kern/kern_exec.c)
++ * makes _cnputs() stop *before* the ring append, so the ring keeps the head;
++ * the ring and the flush path are not touched.
++ *
++ * Once muted nothing else writes to the ring, and these counts are what a
++ * dump needs: AppleKeyStore is the control (published from the same
++ * ConfigTable, known to work), IOPlatformDevice counts the nubs this expert
++ * created, AppleCLCD and IOCoreSurfaceRoot are what the display needs. The
++ * line is padded past the 8 KiB flush step on purpose, so appending it also
++ * flushes the ring to the partition - the only copy a dump can read once the
++ * console has gone silent.
++ */
++extern "C" {
++int sweet_console_silent = 0;
++}
++
++extern "C" void
++sweet_console_quiet_start(void)
++{
++	static int started;
++	int on = 0;
++
++	if (started) {
++		return;
++	}
++	started = 1;
++	if (PE_parse_boot_argn("sweetquiet", &on, sizeof(on)) && on != 0) {
++		sweet_console_silent = 1;
++	}
++}
++
++extern "C" void sweet_log_append(const char *c, int size);	/* bsd/dev/sweet_ufs.c */
++
++static char *
++sweet_put_str(char *p, const char *text)
++{
++	while (*text != '\0') {
++		*p++ = *text++;
++	}
++	return p;
++}
++
++static char *
++sweet_put_uint(char *p, unsigned int v)
++{
++	char tmp[12];
++	int n = 0;
++
++	do {
++		tmp[n++] = (char)('0' + (v % 10));
++		v /= 10;
++	} while (v != 0);
++	while (n > 0) {
++		*p++ = tmp[--n];
++	}
++	return p;
++}
++
++static void
++sweet_service_report(const char *when)
++{
++	static char line[9216];
++	static const char *names[4] = {
++		"AppleCLCD", "IOPlatformDevice", "IOCoreSurfaceRoot", "AppleKeyStore"
++	};
++	char *p = line;
++
++	p = sweet_put_str(p, "SWEET: services(");
++	p = sweet_put_str(p, when);
++	p = sweet_put_str(p, ")");
++	for (int i = 0; i < 4; i++) {
++		*p++ = ' ';
++		p = sweet_put_str(p, names[i]);
++		*p++ = '=';
++		p = sweet_put_uint(p, sweet_service_count(names[i]));
++	}
++	/* pad past the 8 KiB flush step so this append also flushes */
++	while (p < line + sizeof(line) - 2) {
++		*p++ = '.';
++	}
++	*p++ = '\n';
++	sweet_log_append(line, (int)(p - line));
++}
++
++static void
++sweet_report_thread(void *arg, wait_result_t wr)
++{
++	(void)arg;
++	(void)wr;
++	IOSleep(3000);
++	sweet_service_report("3s");
++	IOSleep(5000);
++	sweet_service_report("8s");
++	IOSleep(7000);
++	sweet_service_report("15s");
++}
++
++static void
++sweet_report_start(void)
++{
++	static int started;
++	thread_t thread;
++
++	if (started) {
++		return;
++	}
++	started = 1;
++	if (kernel_thread_start(sweet_report_thread, NULL, &thread) == KERN_SUCCESS) {
++		thread_deallocate(thread);
++	}
++}
++
++/*
++ * How many instances of className IOKit has published right now. A class that
 + * matched shows up here whether or not its start() printed anything.
 + */
-+extern "C" unsigned int
++static unsigned int
 +sweet_service_count(const char *className)
 +{
 +	OSDictionary *matching;
