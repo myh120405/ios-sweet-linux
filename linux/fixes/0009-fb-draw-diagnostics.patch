@@ -1,8 +1,10 @@
 diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
-index 14fe2aa..03f9a3f 100644
+index 14fe2aa..da990b0 100644
 --- a/iokit/Kernel/arm/SweetFramebuffer.cpp
 +++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
-@@ -89,2 +89,97 @@ class IOMobileFramebuffer : public IOService {
+@@ -87,6 +87,145 @@ class IOMobileFramebuffer : public IOService {
+ };
+ 
  OSDefineMetaClassAndStructors(IOMobileFramebuffer, IOService);
 +/*
 + * Drawing diagnostics (see the notes in the ring dump order):
@@ -99,26 +101,50 @@ index 14fe2aa..03f9a3f 100644
 +}
 +
 +
- 
-@@ -215,2 +310,21 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
- 	AppleCLCD *fb = (AppleCLCD *)owner;
-+	static unsigned int sweet_fb_vsync_logged;
++/*
++ * The driver's own mapping of the panel, made the same way SweetSurface does
++ * it (IOMemoryDescriptor::withPhysicalAddress + map(kIOMapWriteCombineCache)),
++ * then the same read/write/flush test. Called from the platform expert's
++ * reporter thread a few seconds in, i.e. after AppleCLCD::start().
++ */
++extern "C" void
++sweet_fb_probe(unsigned long long phys, unsigned long long len)
++{
++	IOMemoryDescriptor *mem;
++	IOMemoryMap *map;
++	volatile uint32_t *px;
 +
-+	if (sweet_fb_vsync_logged < 3) {
-+		sweet_fb_vsync_logged++;
-+		sweet_fb_note("vsync", fb->fVsyncCount,
-+		    (unsigned long long)fb->fDirty, (unsigned long long)fb->fPhys,
-+		    (unsigned long long)fb->fPixels);
-+		if (sweet_fb_vsync_logged == 1 && fb->fPixels != 0) {
-+			volatile uint32_t *px = (volatile uint32_t *)fb->fPixels;
-+
-+			sweet_fb_note("vram-pre", px[0], px[1], px[2], px[3]);
-+			for (int i = 0; i < 16; i++) {
-+				px[i] = 0xFFFF0000u;
-+			}
-+			sweet_fb_note("vram-post", px[0], px[1], px[2], px[3]);
-+			sweet_fb_flush_range((void *)px, 16 * 4);
-+			sweet_fb_note("vram-flushed", px[0], px[1], px[2], px[3]);
-+		}
++	if (phys == 0 || len < 64) {
++		sweet_fb_note("probe-noarg", phys, len, 0, 0);
++		return;
 +	}
- 	uint64_t now = mach_absolute_time();
++	mem = IOMemoryDescriptor::withPhysicalAddress((IOPhysicalAddress)phys,
++	    (IOByteCount)len, kIODirectionOut);
++	if (mem == NULL) {
++		sweet_fb_note("probe-nomem", phys, len, 0, 0);
++		return;
++	}
++	map = mem->map(kIOMapWriteCombineCache);
++	if (map == NULL) {
++		sweet_fb_note("probe-nomap", phys, len, 0, 0);
++		mem->release();
++		return;
++	}
++	px = (volatile uint32_t *)map->getVirtualAddress();
++	sweet_fb_note("probe-mapdrv", phys, (unsigned long long)px, len, 0);
++	if (px != NULL) {
++		sweet_fb_note("vram-pre", px[0], px[1], px[2], px[3]);
++		for (int i = 0; i < 16; i++) {
++			px[i] = 0xFFFF0000u;
++		}
++		sweet_fb_note("vram-post", px[0], px[1], px[2], px[3]);
++		sweet_fb_flush_range((void *)px, 64);
++		sweet_fb_note("vram-flushed", px[0], px[1], px[2], px[3]);
++	}
++	map->release();
++	mem->release();
++}
++
+ 
+ class IOMobileFramebufferUserClient;
+ 
