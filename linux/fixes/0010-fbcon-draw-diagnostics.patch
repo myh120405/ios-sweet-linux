@@ -1,0 +1,78 @@
+diff --git a/pexpert/arm/pe_serial.c b/pexpert/arm/pe_serial.c
+index 19f27cd..6e84ccc 100644
+--- a/pexpert/arm/pe_serial.c
++++ b/pexpert/arm/pe_serial.c
+@@ -721,6 +721,14 @@ static volatile uint32_t *fbcon_base;
+ static uint32_t fbcon_width, fbcon_height, fbcon_stride;
+ static uint32_t fbcon_cols, fbcon_rows, fbcon_col, fbcon_row;
+ 
++/* Drawing diagnostics, defined in iokit/Kernel/arm/SweetFramebuffer.cpp: they
++ * go straight into the persistent ring (printf is muted by sweetquiet=1). */
++extern void sweet_fbcon_note(const char *tag, unsigned long long a,
++    unsigned long long b, unsigned long long c, unsigned long long d);
++extern void sweet_fb_flush_range(void *addr, unsigned long len);
++
++static uint32_t fbcon_draws_logged;
++
+ static void
+ fbcon_clear_row(uint32_t row)
+ {
+@@ -761,6 +769,12 @@ fbcon_transmit_ready(void)
+ static void
+ fbcon_transmit_data(uint8_t c)
+ {
++	if (fbcon_draws_logged < 3) {
++		fbcon_draws_logged++;
++		sweet_fbcon_note("draw", c, (unsigned long long)fbcon_base,
++		    ((unsigned long long)fbcon_col << 32) | (unsigned long long)fbcon_row,
++		    ((unsigned long long)fbcon_stride << 32) | (unsigned long long)fbcon_width);
++	}
+ 	if (c == '\r') {
+ 		fbcon_col = 0;
+ 		return;
+@@ -820,8 +834,10 @@ fbcon_probe(void)
+ 
+ 	if (SecureDTFindEntry("name", "sweet-fbcon", &entry) != kSuccess ||
+ 	    SecureDTGetProperty(entry, "reg", (void const **)&reg, &size) != kSuccess || size < 16) {
++		sweet_fbcon_note("probe-nonode", 0xffffffffu, 0, 0, 0);
+ 		return;
+ 	}
++	sweet_fbcon_note("probe-reg", reg[0], reg[1], size, 0);
+ 	if (SecureDTGetProperty(entry, "width", (void const **)&val, &size) == kSuccess) {
+ 		fbcon_width = *val;
+ 	}
+@@ -832,13 +848,34 @@ fbcon_probe(void)
+ 		fbcon_stride = *val;
+ 	}
+ 	if (!fbcon_width || !fbcon_height || fbcon_stride < fbcon_width * 4) {
++		sweet_fbcon_note("probe-nogeom", fbcon_width, fbcon_height,
++		    fbcon_stride, 0);
+ 		return;
+ 	}
++	sweet_fbcon_note("probe-geom", fbcon_width, fbcon_height, fbcon_stride, 0);
+ 	sweet_early_mark(17, "fbcon config read; mapping");
+ 	fbcon_base = (volatile uint32_t *)ml_io_map_wcomb(reg[0], reg[1]);
+ 	sweet_early_mark(18, "fbcon mapping returned");
++	sweet_fbcon_note("probe-map", (unsigned long long)fbcon_base, reg[0], reg[1], 0);
+ 	if (fbcon_base != NULL) {
+ 		register_serial_functions(&sweet_fbcon_serial_functions);
++		/*
++		 * Write test A, before the display driver exists: the early console
++		 * (osfmk/arm64/sweet_early.c) draws through the VA=PA mapping, so if
++		 * this one sees the same memory the panel really is at reg[0] and
++		 * ml_io_map_wcomb works. AppleCLCD does the same test with its own
++		 * IOMemoryDescriptor mapping in start().
++		 */
++		sweet_fbcon_note("probe-pre", fbcon_base[0], fbcon_base[1],
++		    fbcon_base[2], fbcon_base[3]);
++		for (uint32_t i = 0; i < 16; i++) {
++			fbcon_base[i] = 0xFFFF0000u;
++		}
++		sweet_fbcon_note("probe-post", fbcon_base[0], fbcon_base[1],
++		    fbcon_base[2], fbcon_base[3]);
++		sweet_fb_flush_range((void *)fbcon_base, 64);
++		sweet_fbcon_note("probe-flushed", fbcon_base[0], fbcon_base[1],
++		    fbcon_base[2], fbcon_base[3]);
+ 	}
+ }
+ 
