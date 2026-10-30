@@ -1,0 +1,216 @@
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+index 14fe2aa..259df8a 100644
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -37,6 +37,94 @@
+ #include "SweetSurface.h"
+ 
+ extern "C" int sweet_console_muted;     /* osfmk/console/serial_console.c */
++extern "C" void sweet_log_append(const char *c, int size);      /* bsd/dev/sweet_ufs.c */
++
++/*
++ * Drawing diagnostics. printf() is muted by boot-arg sweetquiet=1 (that is how
++ * the ring keeps the early boot log), so every line here goes straight into
++ * the persistent ring instead. Four numbers per line, formatted by hand: no
++ * printf-family declaration is needed in this translation unit.
++ */
++static char *
++sweet_put_str(char *p, const char *text)
++{
++	while (*text != '\0') {
++		*p++ = *text++;
++	}
++	return p;
++}
++
++static char *
++sweet_put_hex(char *p, unsigned long long v)
++{
++	static const char digits[] = "0123456789abcdef";
++	char tmp[16];
++	int n = 0;
++
++	*p++ = '0';
++	*p++ = 'x';
++	do {
++		tmp[n++] = digits[v & 0xf];
++		v >>= 4;
++	} while (v != 0);
++	while (n > 0) {
++		*p++ = tmp[--n];
++	}
++	return p;
++}
++
++static void
++sweet_note4(const char *prefix, const char *tag, unsigned long long a,
++    unsigned long long b, unsigned long long c, unsigned long long d)
++{
++	char line[192];
++	char *p = line;
++	const unsigned long long values[4] = { a, b, c, d };
++
++	p = sweet_put_str(p, prefix);
++	p = sweet_put_str(p, ": ");
++	p = sweet_put_str(p, tag);
++	for (int i = 0; i < 4; i++) {
++		*p++ = ' ';
++		p = sweet_put_hex(p, values[i]);
++	}
++	*p++ = '\n';
++	sweet_log_append(line, (int)(p - line));
++}
++
++static void
++sweet_fb_note(const char *tag, unsigned long long a, unsigned long long b,
++    unsigned long long c, unsigned long long d)
++{
++	sweet_note4("SWEET FB", tag, a, b, c, d);
++}
++
++/* Called from pexpert/arm/pe_serial.c (the text console on the panel). */
++extern "C" void
++sweet_fbcon_note(const char *tag, unsigned long long a, unsigned long long b,
++    unsigned long long c, unsigned long long d)
++{
++	sweet_note4("SWEET FBCON", tag, a, b, c, d);
++}
++
++/*
++ * Clean+invalidate the cache lines covering a range and wait for the writes to
++ * reach memory. The early console writes the panel through a VA=PA non-cacheable
++ * mapping; if the driver's mapping comes back cached instead, the pixels stay in
++ * the CPU cache and the panel (which is not coherent) never sees them. Writing,
++ * flushing by hand and looking at the screen tells these two apart.
++ */
++extern "C" void
++sweet_fb_flush_range(void *addr, unsigned long len)
++{
++	uintptr_t p = (uintptr_t)addr & ~(uintptr_t)63u;
++	uintptr_t end = (uintptr_t)addr + len;
++
++	for (; p < end; p += 64) {
++		__asm__ volatile("dc civac, %0" :: "r"(p) : "memory");
++	}
++	__asm__ volatile("dsb sy" ::: "memory");
++}     /* osfmk/console/serial_console.c */
+ 
+ #if defined(SWEET)
+ #include <IOKit/IOService.h>
+@@ -206,6 +294,35 @@ AppleCLCD::start(IOService *provider)
+ 	registerService();
+ 	IOLog("SWEET FB: AppleCLCD %ux%u stride %u at 0x%llx, default surface %u, presented as %ux%u\n",
+ 	    fWidth, fHeight, fRowBytes, fPhys, fSurface->id, fLogicalW, fLogicalH);
++
++	/*
++	 * Is the panel memory the kernel mapped really the one the shim is
++	 * scanning? Read the first pixels (the shim's text is there), paint 16
++	 * of them red, read back. If vram-pre is zero/garbage the mapping points
++	 * elsewhere; if vram-post does not read back as 0xffff0000 the memory is
++	 * not writable; if both are right and the screen still does not change,
++	 * the panel is scanning another buffer.
++	 */
++	sweet_fb_note("start", (unsigned long long)fPhys, (unsigned long long)fPixels,
++	    ((unsigned long long)fWidth << 32) | (unsigned long long)fRowBytes,
++	    ((unsigned long long)fHeight << 32) | (unsigned long long)fLogicalW);
++	{
++		extern int disableConsoleOutput;
++		volatile uint32_t *px = (volatile uint32_t *)fPixels;
++
++		sweet_fb_note("console-state", (unsigned long long)sweet_console_muted,
++		    (unsigned long long)disableConsoleOutput,
++		    (unsigned long long)fConsolePaused, 0);
++		/* What is in the panel memory right now: the early console's text? */
++		sweet_fb_note("vram-pre", px[0], px[1], px[2], px[3]);
++		for (int i = 0; i < 16; i++) {
++			px[i] = 0xFFFF0000u;
++		}
++		sweet_fb_note("vram-post", px[0], px[1], px[2], px[3]);
++		/* Same 16 pixels, now with the cache cleaned by hand. */
++		sweet_fb_flush_range((void *)px, 16 * 4);
++		sweet_fb_note("vram-flushed", px[0], px[1], px[2], px[3]);
++	}
+ 	return true;
+ }
+ 
+@@ -215,6 +332,12 @@ AppleCLCD::vsyncFired(OSObject *owner, IOTimerEventSource *sender)
+ 	AppleCLCD *fb = (AppleCLCD *)owner;
+ 	uint64_t now = mach_absolute_time();
+ 	uint64_t count = ++fb->fVsyncCount;
++
++	if (count <= 3) {
++		sweet_fb_note("vsync", count, (unsigned long long)fb->fDirty,
++		    (unsigned long long)fb->fFlushTicks,
++		    (unsigned long long)fb->fPowerOff);
++	}
+ 	uint64_t values[6] = {
+ 		(uint32_t)count, (uint32_t)(count >> 32),
+ 		(uint32_t)now, (uint32_t)(now >> 32),
+@@ -306,6 +429,10 @@ AppleCLCD::swap(const uint8_t *rec)
+ 	memcpy(fPending, rec, SWEET_FB_SWAP_REC_SIZE);
+ 	fDirty = true;
+ 	IOLockUnlock(fLock);
++	if (sweet_fb_swap_count < 3) {
++		sweet_fb_note("swap", sweet_fb_swap_count + 1, (unsigned long long)rec,
++		    (unsigned long long)SWEET_FB_SWAP_REC_SIZE, (unsigned long long)fDirty);
++	}
+ 	if ((++sweet_fb_swap_count % 1000) == 0) {
+ 		IOLog("SWEET FB: %llu swaps\n", sweet_fb_swap_count);
+ 	}
+@@ -315,6 +442,13 @@ void
+ AppleCLCD::present(const uint8_t *rec)
+ {
+ 	uint32_t mask = get32(rec, 0x104);
++	static uint32_t sweet_fb_present_calls;
++	uint32_t sweet_present_call = ++sweet_fb_present_calls;
++
++	if (sweet_present_call <= 3) {
++		sweet_fb_note("present", sweet_present_call, mask,
++		    (unsigned long long)fDirty, (unsigned long long)fPixels);
++	}
+ 
+ 
+ 	if (!fConsolePaused) {
+@@ -336,6 +470,11 @@ AppleCLCD::present(const uint8_t *rec)
+ 		int32_t w = (int32_t)get32(b, 8), h = (int32_t)get32(b, 12);
+ 
+ 		if (!(mask & (1u << layer)) || id == 0) {
++			if (sweet_present_call <= 3) {
++				sweet_fb_note("present-skip",
++				    ((unsigned long long)layer << 32) | (unsigned long long)id,
++				    mask, (unsigned long long)(1u << layer), 0);
++			}
+ 			continue;
+ 		}
+ 		SweetSurface *s = sweet_surface_copy(id);
+@@ -393,6 +532,14 @@ AppleCLCD::present(const uint8_t *rec)
+ 		    s->memory == NULL || last > s->memory->getLength()) {
+ 			src = 0;
+ 		}
++		if (sweet_present_call <= 3) {
++			sweet_fb_note("present-layer",
++			    ((unsigned long long)layer << 32) | (unsigned long long)id,
++			    (unsigned long long)src,
++			    ((unsigned long long)(uint32_t)w << 32) | (unsigned long long)(uint32_t)h,
++			    (unsigned long long)(fPixels + (uint64_t)dy * fRowBytes +
++			    (uint64_t)dx * 4));
++		}
+ 		if (src != 0 && bpe == 4) {
+ 			for (int32_t y = 0; y < h; y++) {
+ 				memcpy((void *)(fPixels + (uint64_t)(dy + y) * fRowBytes + (uint64_t)dx * 4),
+@@ -400,6 +547,15 @@ AppleCLCD::present(const uint8_t *rec)
+ 				    (size_t)w * 4);
+ 			}
+ 		}
++		if (sweet_present_call <= 3 && w > 0 && h > 0) {
++			volatile uint32_t *dst = (volatile uint32_t *)
++			    (fPixels + (uint64_t)dy * fRowBytes + (uint64_t)dx * 4);
++			sweet_fb_note("present-landed", (unsigned long long)dst,
++			    dst[0], dst[1], (unsigned long long)w * 4);
++			sweet_fb_flush_range((void *)dst, (unsigned long)w * 4);
++			sweet_fb_note("present-flushed", (unsigned long long)dst,
++			    dst[0], dst[1], 0);
++		}
+ 		s->release();
+ 	}
+ }
