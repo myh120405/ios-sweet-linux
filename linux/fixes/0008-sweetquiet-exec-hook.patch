@@ -1,0 +1,23 @@
+diff --git a/bsd/kern/kern_exec.c b/bsd/kern/kern_exec.c
+index abe96b7..858a5af 100644
+--- a/bsd/kern/kern_exec.c
++++ b/bsd/kern/kern_exec.c
+@@ -1317,6 +1317,18 @@ grade:
+ 	lret = load_machfile(imgp, mach_header, thread, &map, &load_result);
+ 	if (lret == LOAD_SUCCESS) {
+ 		printf("SWEET EXEC: pid=%d load ok\n", proc_getpid(p));
++		/*
++		 * The first user-space image is loaded and about to run: from here
++		 * on the console output is the daemons' (loud) log. boot-arg
++		 * sweetquiet=1 stops it from entering the ring at this point, so a
++		 * dump still has the kernel's own early boot log. The helper reads
++		 * the boot-arg once; without the arg nothing changes.
++		 */
++		{
++			extern void sweet_console_quiet_start(void);
++
++			sweet_console_quiet_start();
++		}
+ 	}
+ 	if (lret != LOAD_SUCCESS) {
+ 		error = load_return_to_errno(lret);

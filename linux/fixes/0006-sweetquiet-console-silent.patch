@@ -1,0 +1,24 @@
+diff --git a/osfmk/console/serial_console.c b/osfmk/console/serial_console.c
+index c86b9e7..9626931 100644
+--- a/osfmk/console/serial_console.c
++++ b/osfmk/console/serial_console.c
+@@ -282,6 +282,19 @@ _cnputs(char *c, int size, bool poll)
+ 	extern int disableConsoleOutput;
+ 
+ #if defined(ARM64_BOARD_CONFIG_SWEET)
++	/*
++	 * sweetquiet=1 (set by the first user-space exec, see bsd/kern/kern_exec.c):
++	 * console text stops here entirely - not drawn, not put in the 4 MiB
++	 * ring. The ring is circular and keeps its last 4 MiB, so the launchd
++	 * flood used to push the early boot lines (SWEET EARLY .. IOKit publish)
++	 * out of it and a dump could only ever show the tail. Muting before the
++	 * ring is what keeps the head, without touching the ring or the flush
++	 * path at all. Panics always print.
++	 */
++	extern int sweet_console_silent;	/* bsd/dev/sweet_ufs.c */
++	if (sweet_console_silent && !panic_active()) {
++		return;
++	}
+ 	sweet_log_append(c, size);
+ 	if (sweet_console_muted && !panic_active()) {
+ 		return;

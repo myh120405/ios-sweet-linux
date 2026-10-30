@@ -1,0 +1,36 @@
+diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+index 0518e8c..ef7bdb2 100644
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -712,6 +712,31 @@ sweet_ufs_init(void)
+ 
+ static char sweet_log_ring[SWEET_LOG_SIZE];
+ static uint64_t _Atomic sweet_log_total;
++
++/*
++ * sweetquiet=1: set at the first user-space exec (bsd/kern/kern_exec.c), read
++ * by _cnputs() (osfmk/console/serial_console.c) *before* the ring append. The
++ * console then stops completely - no drawing and no ring - so the 4 MiB ring
++ * keeps the early boot log (SWEET EARLY .. IOKit publish) instead of the
++ * launchd flood that used to push it out. Nothing in the ring or the flush
++ * path changes; the flag only stops new input.
++ */
++int sweet_console_silent;
++
++void
++sweet_console_quiet_start(void)
++{
++	static int started;
++	int on = 0;
++
++	if (started) {
++		return;
++	}
++	started = 1;
++	if (PE_parse_boot_argn("sweetquiet", &on, sizeof(on)) && on != 0) {
++		sweet_console_silent = 1;
++	}
++}
+ static int sweet_log_chan;
+ static uint32_t sweet_log_secs = SWEET_LOG_SECS;
+ 

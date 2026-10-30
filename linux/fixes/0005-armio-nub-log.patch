@@ -1,28 +1,42 @@
 diff --git a/iokit/Kernel/arm/SweetPlatformExpert.cpp b/iokit/Kernel/arm/SweetPlatformExpert.cpp
-index 765308c..0342291 100644
+index 765308c..fb924db 100644
 --- a/iokit/Kernel/arm/SweetPlatformExpert.cpp
 +++ b/iokit/Kernel/arm/SweetPlatformExpert.cpp
-@@ -9,6 +9,7 @@
+@@ -9,6 +9,8 @@
  #include <IOKit/IOPlatformExpert.h>
  #include <IOKit/IODeviceTreeSupport.h>
  #include <IOKit/IOLib.h>
++#include <pexpert/pexpert.h>		/* PE_Video, PE_current_console */
 +#include <libkern/c++/OSData.h>
  
  class SweetPlatformExpert : public IODTPlatformExpert {
  	OSDeclareDefaultStructors(SweetPlatformExpert);
-@@ -76,7 +77,29 @@ SweetPlatformExpert::processTopLevel(IORegistryEntry *root)
+@@ -74,12 +76,71 @@ SweetPlatformExpert::processTopLevel(IORegistryEntry *root)
+ 	 * driven by the platform code and gets no nub. The nubs hang off this
+ 	 * platform expert: IOPlatformDevice::compareName asks its provider.
  	 */
++	/*
++	 * ---- display diagnostics (one boot, printed once) -------------------
++	 * AppleCLCD matches an IOPlatformDevice with IONameMatch 'sweet,display'
++	 * (see iokit/KernelConfigTables.cpp), so it can only ever start if such a
++	 * nub is published here. AppleCLCD::start()'s first statement is its own
++	 * printf, so "SWEET FB" missing from the log means either no such nub or a
++	 * failed compare - these lines tell which, without another round trip.
++	 */
++	{
++		PE_Video video;
++
++		PE_current_console(&video);
++		IOLog("SWEET: boot framebuffer base 0x%llx %ux%u row %u\n",
++		    (unsigned long long)video.v_baseAddr,
++		    (unsigned)video.v_width, (unsigned)video.v_height,
++		    (unsigned)video.v_rowBytes);
++	}
++
  	IORegistryEntry *armio = root->childFromPath("arm-io", gIODTPlane);
++	IOLog("SWEET: dt arm-io %s\n", armio != NULL ? "present" : "MISSING");
  	if (armio != NULL) {
 -		createNubs(this, IODTFindMatchingEntries(armio, kIODTExclusive, "('gic')"));
-+		/*
-+		 * The display (AppleCLCD, IONameMatch 'sweet,display') is an
-+		 * IOPlatformDevice, so the nub for its device-tree node has to exist
-+		 * below this expert before any matching can happen. Log every child the
-+		 * matcher will look at (name and compatible are what IODTCompareNubName
-+		 * compares) - if 'sweet,display' is not among them, AppleCLCD::start can
-+		 * never be called and the screen stays as the shim left it.
-+		 */
 +		OSIterator *entries = IODTFindMatchingEntries(armio, kIODTExclusive, "('gic')");
 +		unsigned int count = 0;
 +		if (entries != NULL) {
@@ -30,7 +44,7 @@ index 765308c..0342291 100644
 +			while ((e = (IORegistryEntry *)entries->getNextObject()) != NULL) {
 +				OSData *comp = (OSData *)e->getProperty("compatible");
 +				IOLog("SWEET: arm-io[%u] name '%s' compatible '%s'\n", count++,
-+				    e->getName(),
++				    e->getName() != NULL ? e->getName() : "?",
 +				    comp != NULL && comp->getBytesNoCopy() != NULL
 +				    ? (const char *)comp->getBytesNoCopy() : "-");
 +			}
@@ -41,3 +55,32 @@ index 765308c..0342291 100644
  		armio->release();
  	}
  
++	/*
++	 * The whole device-tree map, bounded: if the panel node is not below
++	 * /arm-io this is where it (or its absence) shows up, and it is also the
++	 * answer to "which compatible strings does this DT actually have".
++	 */
++	{
++		OSIterator *all = IODTFindMatchingEntries(root, kIODTRecursive, NULL);
++		unsigned int nodes = 0;
++
++		if (all != NULL) {
++			IORegistryEntry *e;
++			while ((e = (IORegistryEntry *)all->getNextObject()) != NULL) {
++				OSData *comp = (OSData *)e->getProperty("compatible");
++				nodes++;
++				if (nodes <= 400) {
++					IOLog("SWEET: dt[%u] %s = '%s'\n", nodes,
++					    e->getName() != NULL ? e->getName() : "?",
++					    comp != NULL && comp->getBytesNoCopy() != NULL
++					    ? (const char *)comp->getBytesNoCopy() : "-");
++				}
++			}
++			all->release();
++		}
++		IOLog("SWEET: dt nodes %u (first 400 printed)\n", nodes);
++	}
++
+ 	/*
+ 	 * backboardd registers a notification for IONameMatch "usb-drd,t8027" and
+ 	 * keeps that path open while it brings the window server up. The device tree
