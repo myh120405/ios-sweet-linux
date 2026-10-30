@@ -1,0 +1,45 @@
+diff --git a/bsd/dev/sweet_ufs.c b/bsd/dev/sweet_ufs.c
+index 0518e8c..0f8caf0 100644
+--- a/bsd/dev/sweet_ufs.c
++++ b/bsd/dev/sweet_ufs.c
+@@ -712,6 +712,8 @@ sweet_ufs_init(void)
+ 
+ static char sweet_log_ring[SWEET_LOG_SIZE];
+ static uint64_t _Atomic sweet_log_total;
++static uint64_t sweet_log_freeze;       /* sweetlog_freeze=N, 0 = keep last */
++static int sweet_log_freeze_state = -1; /* -1 unread, 1 read */
+ static int sweet_log_chan;
+ static uint32_t sweet_log_secs = SWEET_LOG_SECS;
+ 
+@@ -735,9 +737,31 @@ void sweet_log_append(const char *c, int size);
+ void
+ sweet_log_append(const char *c, int size)
+ {
++	/*
++	 * sweetlog_freeze=N (bytes, 0 = off): stop appending to the ring once N
++	 * bytes have gone through it. The ring is circular and keeps its last
++	 * 4 MiB, so a daemon that floods the console (launchd restarting a
++	 * crashing service) pushes the early boot messages - the ones that say
++	 * where IOKit stopped - out of it, and the dump then only has the tail.
++	 * Frozen at 1 MiB the dump holds the head of the boot log instead. The
++	 * console path flushes the ring after every 8 KiB, so the partition copy
++	 * ends at the freeze point as well.
++	 */
+ 	if (size <= 0) {
+ 		return;
+ 	}
++	if (sweet_log_freeze_state < 0 &&
++	    os_atomic_load(&sweet_log_total, relaxed) >= (1ull << 16)) {
++		/* Boot args are certainly parsed by the time 64 KiB went out. */
++		uint32_t freeze = 0;
++		PE_parse_boot_argn("sweetlog_freeze", &freeze, sizeof(freeze));
++		sweet_log_freeze = freeze;
++		sweet_log_freeze_state = 1;
++	}
++	if (sweet_log_freeze != 0 &&
++	    os_atomic_load(&sweet_log_total, relaxed) >= (uint64_t)sweet_log_freeze) {
++		return;
++	}
+ 	uint64_t at = os_atomic_add_orig(&sweet_log_total, (uint64_t)size, relaxed);
+ 	for (int i = 0; i < size; i++) {
+ 		sweet_log_ring[(at + (uint64_t)i) % SWEET_LOG_SIZE] = c[i];
