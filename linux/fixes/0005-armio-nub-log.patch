@@ -1,0 +1,43 @@
+diff --git a/iokit/Kernel/arm/SweetPlatformExpert.cpp b/iokit/Kernel/arm/SweetPlatformExpert.cpp
+index 765308c..0342291 100644
+--- a/iokit/Kernel/arm/SweetPlatformExpert.cpp
++++ b/iokit/Kernel/arm/SweetPlatformExpert.cpp
+@@ -9,6 +9,7 @@
+ #include <IOKit/IOPlatformExpert.h>
+ #include <IOKit/IODeviceTreeSupport.h>
+ #include <IOKit/IOLib.h>
++#include <libkern/c++/OSData.h>
+ 
+ class SweetPlatformExpert : public IODTPlatformExpert {
+ 	OSDeclareDefaultStructors(SweetPlatformExpert);
+@@ -76,7 +77,29 @@ SweetPlatformExpert::processTopLevel(IORegistryEntry *root)
+ 	 */
+ 	IORegistryEntry *armio = root->childFromPath("arm-io", gIODTPlane);
+ 	if (armio != NULL) {
+-		createNubs(this, IODTFindMatchingEntries(armio, kIODTExclusive, "('gic')"));
++		/*
++		 * The display (AppleCLCD, IONameMatch 'sweet,display') is an
++		 * IOPlatformDevice, so the nub for its device-tree node has to exist
++		 * below this expert before any matching can happen. Log every child the
++		 * matcher will look at (name and compatible are what IODTCompareNubName
++		 * compares) - if 'sweet,display' is not among them, AppleCLCD::start can
++		 * never be called and the screen stays as the shim left it.
++		 */
++		OSIterator *entries = IODTFindMatchingEntries(armio, kIODTExclusive, "('gic')");
++		unsigned int count = 0;
++		if (entries != NULL) {
++			IORegistryEntry *e;
++			while ((e = (IORegistryEntry *)entries->getNextObject()) != NULL) {
++				OSData *comp = (OSData *)e->getProperty("compatible");
++				IOLog("SWEET: arm-io[%u] name '%s' compatible '%s'\n", count++,
++				    e->getName(),
++				    comp != NULL && comp->getBytesNoCopy() != NULL
++				    ? (const char *)comp->getBytesNoCopy() : "-");
++			}
++			entries->reset();
++		}
++		IOLog("SWEET: arm-io children %u\n", count);
++		createNubs(this, entries);
+ 		armio->release();
+ 	}
+ 
