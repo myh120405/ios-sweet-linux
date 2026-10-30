@@ -1,27 +1,28 @@
 diff --git a/iokit/Kernel/arm/SweetPlatformExpert.cpp b/iokit/Kernel/arm/SweetPlatformExpert.cpp
-index 765308c..fb924db 100644
+index 765308c..8f0b3e2 100644
 --- a/iokit/Kernel/arm/SweetPlatformExpert.cpp
 +++ b/iokit/Kernel/arm/SweetPlatformExpert.cpp
-@@ -9,6 +9,8 @@
+@@ -9,6 +9,9 @@
  #include <IOKit/IOPlatformExpert.h>
  #include <IOKit/IODeviceTreeSupport.h>
  #include <IOKit/IOLib.h>
-+#include <pexpert/pexpert.h>		/* PE_Video, PE_current_console */
++#include <pexpert/pexpert.h>		/* PE_Video, PE_current_console, PE_boot_args */
 +#include <libkern/c++/OSData.h>
++#include <libkern/c++/OSDictionary.h>
  
  class SweetPlatformExpert : public IODTPlatformExpert {
  	OSDeclareDefaultStructors(SweetPlatformExpert);
-@@ -74,12 +76,71 @@ SweetPlatformExpert::processTopLevel(IORegistryEntry *root)
+@@ -74,12 +77,73 @@ SweetPlatformExpert::processTopLevel(IORegistryEntry *root)
  	 * driven by the platform code and gets no nub. The nubs hang off this
  	 * platform expert: IOPlatformDevice::compareName asks its provider.
  	 */
 +	/*
-+	 * ---- display diagnostics (one boot, printed once) -------------------
++	 * ---- display diagnostics (one boot, each line printed once) ----------
 +	 * AppleCLCD matches an IOPlatformDevice with IONameMatch 'sweet,display'
-+	 * (see iokit/KernelConfigTables.cpp), so it can only ever start if such a
-+	 * nub is published here. AppleCLCD::start()'s first statement is its own
-+	 * printf, so "SWEET FB" missing from the log means either no such nub or a
-+	 * failed compare - these lines tell which, without another round trip.
++	 * (iokit/KernelConfigTables.cpp), so it can only start if such a nub is
++	 * published here. AppleCLCD::start()'s first statement is its own printf,
++	 * so a missing "SWEET FB" in a dump means "no nub" or "no match" - the
++	 * lines below tell which, without another round trip.
 +	 */
 +	{
 +		PE_Video video;
@@ -31,6 +32,8 @@ index 765308c..fb924db 100644
 +		    (unsigned long long)video.v_baseAddr,
 +		    (unsigned)video.v_width, (unsigned)video.v_height,
 +		    (unsigned)video.v_rowBytes);
++		IOLog("SWEET: boot-args '%s'\n",
++		    PE_boot_args() != NULL ? PE_boot_args() : "(none)");
 +	}
 +
  	IORegistryEntry *armio = root->childFromPath("arm-io", gIODTPlane);
@@ -57,8 +60,8 @@ index 765308c..fb924db 100644
  
 +	/*
 +	 * The whole device-tree map, bounded: if the panel node is not below
-+	 * /arm-io this is where it (or its absence) shows up, and it is also the
-+	 * answer to "which compatible strings does this DT actually have".
++	 * /arm-io this is where it (or its absence) shows up, and it also answers
++	 * "which compatible strings does this DT actually have".
 +	 */
 +	{
 +		OSIterator *all = IODTFindMatchingEntries(root, kIODTRecursive, NULL);
@@ -84,3 +87,42 @@ index 765308c..fb924db 100644
  	/*
  	 * backboardd registers a notification for IONameMatch "usb-drd,t8027" and
  	 * keeps that path open while it brings the window server up. The device tree
+@@ -106,6 +170,38 @@ SweetPlatformExpert::processTopLevel(IORegistryEntry *root)
+ 	}
+ }
+ 
++/*
++ * How many instances of className IOKit has published right now. Called from
++ * the reporter thread in bsd/dev/sweet_ufs.c a few seconds into the boot (and
++ * again later) and written straight into the persistent ring, so the answer
++ * survives even when boot-arg sweetquiet=1 has muted the console. A class that
++ * matched shows up here whether or not its start() printed anything.
++ */
++extern "C" unsigned int
++sweet_service_count(const char *className)
++{
++	OSDictionary *matching;
++	OSIterator *found;
++	unsigned int n = 0;
++
++	if (className == NULL) {
++		return 0;
++	}
++	matching = IOService::serviceMatching(className);
++	if (matching == NULL) {
++		return 0;
++	}
++	found = IOService::getMatchingServices(matching);
++	matching->release();
++	if (found != NULL) {
++		while (found->getNextObject() != NULL) {
++			n++;
++		}
++		found->release();
++	}
++	return n;
++}
++
+ /*
+  * hw.target / hw.product come from IODTPlatformExpert: the first root
+  * "compatible" string and "model" (D22AP / iPhone10,3 in the ADT), which
