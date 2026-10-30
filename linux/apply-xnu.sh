@@ -129,8 +129,20 @@ fi
 # the series stays byte-identical to myh982516/ios-sweet-umi. See linux/fixes/ and README.md.
 for f in "$HERE"/fixes/*.patch; do
 	[ -f "$f" ] || continue
-	git -C "$XNU_SRC" apply -v --whitespace=nowarn "$f" ||
-		die "overlay fix $(basename "$f") does not apply to $XNU_TAG"
+	if ! git -C "$XNU_SRC" apply -v --whitespace=nowarn "$f"; then
+		# A diagnostic overlay must never stop the build; say what failed and
+		# print the source the series left, so the patch can be fixed against
+		# the real text instead of a reconstruction.
+		log "WARNING: overlay fix $(basename "$f") does not apply (skipped)"
+		echo "----- source as the series leaves it (fix the overlay against this):"
+		sed -n '80,145p' "$XNU_SRC/iokit/Kernel/arm/SweetFramebuffer.cpp" || true
+		echo "----- 200,250"
+		sed -n '200,250p' "$XNU_SRC/iokit/Kernel/arm/SweetFramebuffer.cpp" || true
+		echo "----- 300,330"
+		sed -n '300,330p' "$XNU_SRC/iokit/Kernel/arm/SweetFramebuffer.cpp" || true
+		overlay_skipped=1
+		continue
+	fi
 	log "overlay fix $(basename "$f")"
 done
 
