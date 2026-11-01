@@ -22,10 +22,10 @@ on:
     inputs:
       patches_repo:
         description: repository that carries xnu/patches (owner/name)
-        default: myh982516/ios-sweet-umi
+        default: 2myh120405/ios-sweet-umi
       patches_sha:
         description: commit of that repository to take the patches from
-        default: 952cf3329e24c99adbb08f13fb78afe57f72ffc4
+        default: 68d87a5a4b2baa877b129dc1245ab4206e343268
       xnu_tag:
         description: apple-oss-distributions/xnu tag to build on
         default: xnu-8796.141.3
